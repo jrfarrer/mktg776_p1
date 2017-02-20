@@ -41,4 +41,5 @@ vignettes/*.pdf
 .Rproj.user
 *.xlsx
 *.xls
+libs/
 
