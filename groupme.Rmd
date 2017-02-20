@@ -1,23 +1,22 @@
 ---
 title: "Wharton 2018 GroupMe"
-subtitle: 'MTKG776: Applied Probability Models in Marketing'
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{float}
 date: '2017-02-23'
 output:
+  bookdown::html_document2:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+    css: style.css
   pdf_document:
     fig_caption: yes
     number_sections: yes
     toc: yes
     toc_depth: 2
-  html_document:
-    css: style.css
-    number_sections: yes
-    theme: flatly
-    toc: yes
-    toc_depth: 2
-    toc_float: yes
-header-includes:
-- \usepackage{graphicx}
-- \usepackage{float}
+subtitle: 'MTKG776: Applied Probability Models in Marketing'
 ---
 
 ```{r setup, include = FALSE}
@@ -34,12 +33,15 @@ knitr::knit_hooks$set(
 ```
 
 ```{r load packages, results = 'hide'}
-pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, jrfTools, extrafont, RcppRoll, ggrepel)
+pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, jrfTools, extrafont, RcppRoll, ggrepel, DT)
 ```
 
 ```{r additional setup hidden, include = FALSE}
 panderOptions('round', 2)
 panderOptions('keep.trailing.zeros', TRUE)
+panderOptions('table.caption.prefix', 'Table: ')
+options(knitr.table.format = 'pandoc', knitr.kable.NA = '')
+
 data_dir <- 'data/'
 code_dir <- 'code/'
 viz_dir <- 'viz/'
@@ -63,17 +65,17 @@ load(paste0(data_dir, "groupme_776.rda"))
 
 ## GroupMe Platform
 
-```{r fig.cap = 'GroupMe Logo', out.width = '35%'}
+```{r out.width = '35%'}
 knitr::include_graphics(paste0(viz_dir,'groupme_logo.png'))
 ```
 
 You have just decided to attend Wharton business school. After paying your deposit and joining the Facebook group, the next thing you do is join the class GroupMe. [GroupMe](https://groupme.com) is messaging service conceived and built in 2010 and was later acquired by Skype (and thus a Microsoft holding). Unlike Whatsapp or iMessage, GroupMe is designed for *group messaging* rather than one-on-one conversations. As such it's become the message platform *du jour* for university students as it supports groups with hundreds of users. Below is a sample message within a thread. You can see 3 primary actions: 
 
 1. Posts - messages sent by users
-2. Mentions - "@"ing another user, which alerts them
+2. Mentions - \@'ing another user, which alerts them
 3. Likes - heart-ing a post to show you like it
 
-```{r fig.cap = 'Screenshot showing posts, mentions, and likes', out.width = '40%'}
+```{r groupme-example, fig.cap = 'Screenshot showing posts, mentions, and likes', out.width = '40%'}
 knitr::include_graphics(paste0(viz_dir,'groupme_example.jpg'))
 ```
 
@@ -260,15 +262,15 @@ posts_per_user %>%
   theme_jrf(users_v = "rstudio")
 ```
 
-```{r posts data frame}
+```{r posts-data-frame, cap.fig = "test me"}
 posts <-
   posts_per_user %>%
   group_by(posts) %>%
   summarise(users = n()) %>%
   arrange(posts)
 
-posts %>%
-  head(10) %>%
+posts %>% 
+  head(10) %>% 
   pander(caption = "Number of users for count of posts in period (bottom 10)")
 ```
 
@@ -289,9 +291,9 @@ post_params <-
 
 We fit an NBD model, including a zero-inflated NBD given the noteable spike at 0, using MLE, method of moments, and means and zero to estimate parameters. We find through MLE that a zero-inflated model does not help describe the data as $\pi = 0$.
 
-```{r print table of parameter estimates}
+```{r print-table-of-parameter-estimates}
 post_params %>%
-  select(-variable) %>%
+  select(-variable) %>% 
   pander(caption = "NBD parameters estimates for different methods", round = 4, missing = "")
 ```
 
@@ -756,8 +758,8 @@ Lp %>%
        title = "Lorenz Curves for GroupMe Activites", colour = NULL) +
   scale_x_continuous(breaks = scales::pretty_breaks(), labels = scales::percent) + 
   scale_y_continuous(labels = scales::percent) +
-  geom_point(data = rule_8020, aes(wx = p, y = L_p, colour = variable)) + 
-  geom_label_repel(data = rule_8020, aes(wx = p, y = L_p, colour = variable, 
+  geom_point(data = rule_8020, aes(x = p, y = L_p, colour = variable)) + 
+  geom_label_repel(data = rule_8020, aes(x = p, y = L_p, colour = variable, 
                     label = scales::percent(L_p)), show.legend = FALSE,
                     family = "DecimaMonoPro") +
   theme_jrf(users_v = "rstudio") + 
@@ -793,7 +795,7 @@ combins <- crossing(
   , activity = c("posts", "mentions","likes")
   , gender = c("Female","Male", "Combined")
 )
-for (i in 1:nrow(gender_combinations)) {
+for (i in 1:nrow(combins)) {
   
   if (combins$gender[i] == "Combined") {
     genders <- paste0('c("Female", "Male")')
@@ -933,8 +935,8 @@ Lp_gender %>%
        title = "Lorenz Curves for GroupMe Activites by Gender", colour = NULL) +
   scale_x_continuous(breaks = scales::pretty_breaks(), labels = scales::percent) + 
   scale_y_continuous(labels = scales::percent) +
-  geom_point(data = rule_8020_gender, aes(wx = p, y = L_p, colour = gender)) + 
-  geom_label_repel(data = rule_8020_gender, aes(wx = p, y = L_p, colour = gender, 
+  geom_point(data = rule_8020_gender, aes(x = p, y = L_p, colour = gender)) + 
+  geom_label_repel(data = rule_8020_gender, aes(x = p, y = L_p, colour = gender, 
                     label = scales::percent(L_p)), show.legend = FALSE,
                     family = "DecimaMonoPro") +
   theme_jrf(users_v = "rstudio") + 
