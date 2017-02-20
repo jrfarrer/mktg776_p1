@@ -1,0 +1,960 @@
+---
+title: "Wharton 2018 GroupMe"
+subtitle: 'MTKG776: Applied Probability Models in Marketing'
+date: '2017-02-23'
+output:
+  pdf_document:
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+  html_document:
+    css: style.css
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+header-includes:
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center', size = 'small', fig.pos = 'H',
+                      fig.width = 6, fig.height = 3.5)
+
+knitr::knit_hooks$set(
+          size = function(before, options, envir) {
+                  if (before) return(paste0("\n \\", options$size, "\n\n"))
+                  else return("\n\n \\normalsize \n")
+                  }
+          , inline = function(x) {if(!is.numeric(x)){ x }else{ prettyNum(round(x,2), big.mark=",") } }
+          )
+```
+
+```{r load packages, results = 'hide'}
+pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, jrfTools, extrafont, RcppRoll, ggrepel)
+```
+
+```{r additional setup hidden, include = FALSE}
+panderOptions('round', 2)
+panderOptions('keep.trailing.zeros', TRUE)
+data_dir <- 'data/'
+code_dir <- 'code/'
+viz_dir <- 'viz/'
+
+map(c(data_dir, code_dir, viz_dir), dir.create, showWarnings = FALSE)
+```
+
+# Executive Summary
+
+There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.  There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.
+
+# Data
+
+```{r results = 'hide', eval = FALSE}
+rmarkdown::render("download_data.Rmd", params = list(rerun = FALSE))
+```
+
+```{r}
+load(paste0(data_dir, "groupme_776.rda"))
+```
+
+## GroupMe Platform
+
+```{r fig.cap = 'GroupMe Logo', out.width = '35%'}
+knitr::include_graphics(paste0(viz_dir,'groupme_logo.png'))
+```
+
+You have just decided to attend Wharton business school. After paying your deposit and joining the Facebook group, the next thing you do is join the class GroupMe. [GroupMe](https://groupme.com) is messaging service conceived and built in 2010 and was later acquired by Skype (and thus a Microsoft holding). Unlike Whatsapp or iMessage, GroupMe is designed for *group messaging* rather than one-on-one conversations. As such it's become the message platform *du jour* for university students as it supports groups with hundreds of users. Below is a sample message within a thread. You can see 3 primary actions: 
+
+1. Posts - messages sent by users
+2. Mentions - "@"ing another user, which alerts them
+3. Likes - heart-ing a post to show you like it
+
+```{r fig.cap = 'Screenshot showing posts, mentions, and likes', out.width = '40%'}
+knitr::include_graphics(paste0(viz_dir,'groupme_example.jpg'))
+```
+
+The data in this analysis is from the "Wharton - 2018" GroupMe group (often just referred to as the Wharton 2018 GroupMe). GroupMe has an [API](dev.groupme.com) that allows developers to access groups and messages. After creating an access token, we built a pipeline to acquire and process the users and messages from GroupMe for this group (see [this data processing documentation]() for details). After parsing the json's and cleaning the data, we created a dataset of tables illustrated in the diagram below:
+
+```{r fig.cap = 'GroupMe data organization', out.width = '60%'}
+knitr::include_graphics(paste0(viz_dir,'groupme_erd.png'))
+```
+
+## Wharton 2018 GroupMe
+
+There are **`r nrow(users)`** users in the Wharton 2018 GroupMe. There are approximately 850 members of the Wharton 2018 MBA class. Though the group was created in January 2016, we trimmed the dataset to August 8, 2016 (first day of pre-term) to provide an accurate window in which to observe the actions of the users. In other words, all users have the same observation period. We removed users from the dataset that have left the group and discuss the possibility of late joiners in the final Limitations section. The last post in our dataset is **`r msgs %>% arrange(desc(created_at)) %>% select(created_at) %>% head(1) %>% mutate(created_at = as.character(created_at)) %>% unlist()`**. There have been **`r nrow(msgs)`** posts by **`r msgs %>% summarise(n_distinct(user_id)) %>% unlist()`** distinct users. Below is a time series of the posts:
+
+```{r}
+msgs %>%
+  mutate(day = as_date(floor_date(created_at, unit = "day"))) %>%
+  ggplot(aes(x = day)) +
+  geom_line(stat = "count", colour = pal538[['blue']]) +
+  labs(x = NULL, y = "Posts", title = "Daily Post Volume") +
+  scale_x_date(date_breaks = "month", date_labels = "%b %y") +
+  theme_jrf(users_v = "rstudio")
+```
+
+From the plot above we see a great deal of daily volatility. Below is a plot of a 7-day rolling average that helps smooth out spikes and exhibit the trend. 
+
+```{r}
+min_day <- floor_date(min(msgs$created_at), unit = "day")
+max_day <- ceiling_date(max(msgs$created_at), unit = "day")
+
+data_frame(day = as_date(seq(from = min_day, to = max_day, by = "day"))) %>%
+  left_join(
+    msgs %>%
+      mutate(message_day = as_date(round_date(created_at, unit = "day"))) %>%
+      group_by(message_day) %>%
+      count()
+    , by = c('day'='message_day')
+  ) %>%
+  mutate(l7_day = roll_mean(n, 7, align = "right", fill = NA, na.rm = TRUE)) %>%
+  ggplot(aes(x = day, y = l7_day)) +
+  geom_line(colour = pal538[['blue']]) +
+  labs(x = NULL, y = "Posts", title = "7-Day Rolling Average of Posts") +
+  scale_x_date(date_breaks = "month", date_labels = "%b %y") +
+  scale_y_continuous(limits = c(0, NA)) +
+  theme_jrf(users_v = "rstudio")
+```
+
+## Count Datasets
+
+### Three Events
+
+The three actions that we will investigate (posts, mentions, and likes) each arise from count processes and thus deserve a count model (i.e. NBD).
+
+|Event|Individual-level Story|Source of Heterogeneity|
+|:-----:|:-------------------------------------:|:--------------------:|
+|Posts|Users in the Wharton 2018 GroupMe can post as many times as they would like - there is no upper bound. Thus we can think of each user as having a **post rate**, $\lambda$, in the observed time window.|Users interact with GroupMe differently. Some post a lot, some have never posted. However, all users have the same opportunity to post.|
+|Mentions|Users in the Wharton 2018 GroupMe can be mentioned an infinite number of times - there is no upper bound. Other users can create a new post and mention them. Unlike the posts event, the act of being mentioned is not in the agency of individual. Nevertheless, we can think of each user has having a **mention rate**, $\lambda$, during the observed time window that determines how many times they will be mentioned| Popularity. In all seriousness, some users of the group will be mentioned more than others. Some will not be mentioned at all. Heterogeneity arises from the social construct.|
+|Likes|The number of posts a user has liked is a choice dataset, as there is a finite number of opportunities to like a post (i.e. the number of posts). However, given the high upper bound, we can reasonably view this dataset as a count process. As such, each user has some **like rate**, $\lambda$, during the observed time window that determines how many posts they like. An individual can be someone that likes every post or has never liked a post.|Users have different levels of engagement on the Wharton 2018 GroupMe. Thus, it follows there will be variation in like rates within the user population.|
+: Count datasets arising from the Wharton 2018 GroupMe
+
+We expect to observe difference in heterogeneity of each of the three events. For example, we would presume that there is more heterogeneity in **like rate** than in **post rate** as liking is less visible and risky (to one's reputation) than posting in a group of `r nrow(users)`.
+
+### Gender
+
+In addition to three behaviors that are the primary interest of this analysis, we included an attribute of the user: gender. We will use this to identify if there are differences in posting, being mentioned, or liking between male and female Wharton students.
+
+```{r fig.width= 2.9, fig.height = 3}
+users %>%
+  ggplot(aes(x = factor(1), fill = sex)) +
+  geom_bar(width = 1) +
+  coord_polar(theta = 'y') +
+  labs(title = "Gender Breakdown") +
+  theme_jrf(users_v = "rstudio") +
+  theme(text = element_text(size = 11),
+                 axis.ticks=element_blank(),
+                 axis.text=element_blank(),
+                 axis.title=element_blank(),
+                 panel.grid  = element_blank(),
+                 legend.position = 'none') +
+  geom_label(data = . %>% group_by(sex) %>% count() %>% arrange(desc(n)) %>% 
+               mutate(pos = cumsum(n) - n/2, label = paste0(n, " ", sex, "s\n", scales::percent(n / sum(n)))),
+             aes(x = factor(1), y = pos, label = label), family = "DecimaMonoPro", size = 3.2) +
+  scale_fill_manual(values = c(Female = pal538[['red']], Male = pal538[['blue']]))
+```
+
+# NBD Model
+
+```{r MLE Function}
+# For Zero-inflated Negative Binomial Distribution, calculates P(X=x)
+fn_zinbd <- function(x, r, alpha, pi) {
+  p_x <- exp(lgamma(r + x) - (lgamma(r) + lfactorial(x))) * (alpha / (alpha + 1))^r * (1 / (alpha + 1))^x
+  if(x == 0) {
+    return(pi + (1 - pi) * p_x)  
+  } else {
+    return((1 - pi) * p_x)  
+  }
+}
+
+# Calculates the log-likelihood of the NBD (including zero-inflated)
+fn_max_ll <- function(par, zero_inflated = FALSE, x) {
+  r <- par[1]
+  alpha <- par[2]
+  if (zero_inflated) {
+    pi <- par[3]
+  } else {
+    pi <- 0
+  }
+  ll <- sum(log(map_dbl(x, fn_zinbd, r, alpha, pi)))
+
+  return(-ll)
+}
+
+fn_nbd_mle <- function(name, x, zero_inflated = FALSE) {
+  
+  if (zero_inflated) {
+    start = c(1, 1, .5); lower <- c(0, 0, 0); upper = c(Inf, Inf, 1);
+  } else {
+    start = c(1, 1); lower <- c(0, 0); upper = c(Inf, Inf);
+  }
+  
+  pars <- nlminb(start, fn_max_ll, lower = lower, upper = upper, zero_inflated = zero_inflated, x = x)
+  
+  data_frame(
+    model = name
+    , r = pars$par[1]
+    , alpha = pars$par[2]
+    , pi = if_else(zero_inflated, pars$par[3], as.numeric(NA))
+  )
+}
+```
+
+```{r Method of Moments Function}
+fn_method_of_moments <- function(name, x) {
+  alpha_mom <- mean(x) / (sd(x)^2 - mean(x))
+  r_mom <- alpha_mom * mean(x)
+  
+  data_frame(
+    model = name
+    , r = r_mom
+    , alpha = alpha_mom
+    , pi = as.numeric(NA)
+  )
+}
+```
+
+```{r Means and Zeros Function}
+fn_means_and_zeros <- function(name, x) {
+  
+  fn_means_and_zeros_optim <- function(alpha, x) {
+    (alpha / (alpha + 1))^(alpha * mean(x)) - sum(x == 0) / length(x)
+  }
+  
+  alpha_maz <- uniroot(fn_means_and_zeros_optim, x = x, interval=c(0,1000), tol=0.000001)$root
+  r_maz <- alpha_maz * mean(x)
+  
+  data_frame(
+    model = name
+    , r = r_maz
+    , alpha = alpha_maz
+    , pi = as.numeric(NA)
+  )
+}
+```
+
+## Posts
+
+```{r posts per user}
+posts_per_user <-
+  users %>%
+    left_join(
+      msgs, 
+      by = c('user_id')
+    ) %>%
+    group_by(user_id) %>%
+    summarise(posts = sum(!is.na(msg_id)))
+```
+
+In the plot below we show the distribution of posts per user. The distribution is positively skewed with a long right tail. There are a few users that have posted more than 50 times, but the majority are less active. The median number of post per user is **`r median(posts_per_user$posts)`** posts though the mean posts per user is **`r mean(posts_per_user$posts)`** posts.
+
+```{r post per user histogram}
+posts_per_user %>%
+  ggplot(aes(x = posts)) +
+  geom_histogram(binwidth = 1, fill = pal538[['blue']]) +
+  labs(x = "Posts per User", y = "Number of Users", title = "Distribution of Posts per User") +
+  theme_jrf(users_v = "rstudio")
+```
+
+```{r posts data frame}
+posts <-
+  posts_per_user %>%
+  group_by(posts) %>%
+  summarise(users = n()) %>%
+  arrange(posts)
+
+posts %>%
+  head(10) %>%
+  pander(caption = "Number of users for count of posts in period (bottom 10)")
+```
+
+```{r posts parameter estimation}
+post_params <- 
+  bind_rows(
+    fn_nbd_mle("MLE", posts_per_user$posts, zero_inflated = FALSE)
+    , fn_nbd_mle("MLE (Zero-Inflated)", posts_per_user$posts, zero_inflated = TRUE)
+    , fn_method_of_moments("Method of Moments", posts_per_user$posts)
+    , fn_means_and_zeros("Means and Zeros", posts_per_user$posts)
+  ) %>%
+  mutate(
+    model = factor(model, levels = c("MLE", "MLE (Zero-Inflated)","Method of Moments", "Means and Zeros"))
+    , variable = "posts"
+  ) %>%
+  select(variable, everything())
+```
+
+We fit an NBD model, including a zero-inflated NBD given the noteable spike at 0, using MLE, method of moments, and means and zero to estimate parameters. We find through MLE that a zero-inflated model does not help describe the data as $\pi = 0$.
+
+```{r print table of parameter estimates}
+post_params %>%
+  select(-variable) %>%
+  pander(caption = "NBD parameters estimates for different methods", round = 4, missing = "")
+```
+
+We note the divergence between the method of moments and MLE/means and zeros parameter estimates. The large standard deviation, **`r sd(posts_per_user$posts)`**, shrinks the esimate of alpha as $\hat{\alpha} = \frac{\bar{x}}{s^2-\bar{x}}$. 
+
+```{r calculate expected numbers for posts}
+posts_expected <- 
+  post_params %>%
+  filter(model != "MLE (Zero-Inflated)") %>%
+  crossing(
+    data_frame(
+      posts = full_seq(posts$posts, period = 1)
+    ) %>%
+    left_join(
+      posts, by = 'posts'
+    ) %>%
+    replace_na(list(users = 0)) %>% 
+    rename(Actual = users)
+  ) %>%
+  replace_na(list(pi = 0)) %>% 
+  rowwise() %>%
+  mutate(p_x = map_dbl(posts, .f = fn_zinbd, r, alpha, pi)) %>%
+  group_by(model) %>%
+  mutate(expected = p_x * sum(Actual)) %>%
+  ungroup() %>%
+  mutate(chisq = (Actual - expected)^2 / expected)
+```
+
+Below is a table that shows the estimated number of users for posts counts less than five by the three parameter estimation techniques. A plot showing all post counts follows. We see that the methods are not that different, but method of moments certainly performs the worst. 
+
+```{r table of expected users for post counts}
+posts_expected %>%
+  select(posts, Actual, model, expected) %>%
+  spread(model, expected) %>%
+  filter(posts <= 5) %>%
+  pander(caption = "Estimated number of users for posts (<= 5) by different estimation methods", 
+         round = 0, split.cells = 10)
+```
+
+```{r plot results of nbd for posts}
+ggplot() +
+  geom_bar(data = posts_expected %>% distinct(posts, Actual), 
+           aes(x = posts, y = Actual), stat = 'identity', alpha = .75) +
+  geom_line(data = posts_expected, aes(x = posts, y = expected, colour = model), 
+            stat = 'identity') +
+  labs(x = "Posts", y = "Users", title = "NBD Model for Count of Posts", colour = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']]))
+```
+
+```{r Find min num of posts to cut of for chi_squared test}
+n_posts <- 1; percent_cells <- 1;
+while (percent_cells > 0.8) {
+  percent_cells <- 
+    posts_expected %>%
+    mutate(posts = if_else(posts >= n_posts, paste0(n_posts,"+"), as.character(posts))) %>%
+    group_by(model, posts) %>%
+    summarise(
+      Actual = sum(Actual)
+      , expected = sum(expected)
+      , chisq = sum(chisq)
+    ) %>%
+    group_by(model) %>%
+    summarise(percent_expected = sum(expected > 5) / n()) %>%
+    summarise(min_percent_expected = min(percent_expected)) %>%
+    unlist() %>%
+    unname()
+  n_posts <- n_posts + 1
+}
+n_posts <- floor((n_posts-1)/5) * 5
+```
+
+```{r rollup and gof test for posts}
+nbd_post_gof_test <- 
+  posts_expected %>%
+      filter(model != "MLE (Zero-Inflated)") %>%
+      mutate(posts = if_else(posts >= n_posts, paste0(n_posts,"+"), as.character(posts))) %>%
+      group_by(model, posts) %>%
+      summarise(
+        Actual = sum(Actual)
+        , expected = sum(expected)
+      ) %>%
+      mutate(chisq = (Actual - expected)^2 / expected) %>%
+      group_by(model) %>%
+      summarise(chisq = sum(chisq)) %>%
+      mutate(p.value = pchisq(chisq,
+      df = n_posts - 2 - 1, lower.tail = FALSE))
+```
+
+In order to perform the $\chi$^2 goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_posts`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_posts` - 2 - 1 = `r n_posts - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have no evidence that the data came from the NBD model. Nevertheless, the plot above shows a relatively good fit, at least for the estimates from MLE and means and zeros.
+
+```{r posts goodness of fit print}
+nbd_post_gof_test %>%  
+  pander(caption = "Goodness of Fit Test", round = 6)
+```
+
+## Mentions
+
+```{r mentions per user}
+mentions_per_user <-
+  users %>%
+    left_join(
+      msg_mentions, 
+      by = c('user_id' = 'user_ids')
+    ) %>%
+    group_by(user_id) %>%
+    summarise(
+      mentions = sum(!is.na(msg_id))
+    )
+```
+
+Like posts we start by looking at the distribution of the number of times a user has been mentioned both in graphic form and the the table below. Like posts, mentions are postive skewed with a long right tail - one user has 40 mentions. The median number of mentions for a user is **`r median(mentions_per_user$mentions)`** mentions though the mean is **`r mean(mentions_per_user$mentions)`** mentions.
+
+```{r histogram of mentions per users}
+mentions_per_user %>%
+  ggplot(aes(x = mentions)) +
+  geom_histogram(binwidth = 1, fill = pal538[['blue']]) +
+  labs(x = "Mentions per User", y = "Number of Users", title = "Distribution of Mentions per User") +
+  theme_jrf(users_v = "rstudio")
+```
+
+```{r mentions data frame}
+mentions <-
+  mentions_per_user %>%
+  group_by(mentions) %>%
+  summarise(users = n()) %>%
+  arrange(mentions)
+
+mentions %>%
+  head(10) %>%
+  pander(caption = "Number of users for count of mentions in period (bottom 10)")
+```
+
+```{r mentions parameter estimation}
+mentions_params <- 
+  bind_rows(
+    fn_nbd_mle("MLE", mentions_per_user$mentions, zero_inflated = FALSE)
+    , fn_nbd_mle("MLE (Zero-Inflated)", mentions_per_user$mentions, zero_inflated = TRUE)
+    , fn_method_of_moments("Method of Moments", mentions_per_user$mentions)
+    , fn_means_and_zeros("Means and Zeros", mentions_per_user$mentions)
+  ) %>%
+  mutate(
+    model = factor(model, levels = c("MLE", "MLE (Zero-Inflated)","Method of Moments", "Means and Zeros"))
+    , variable = "mentions"
+  ) %>%
+  select(variable, everything())
+```
+
+We perform the parameter estimation using the same techniques and find that zero-inflated model does not fit the data. Like the method of moments estimates for posts, the method of moments estimates for mentions are quite different from the estimates by MLE and means and zeros.
+
+```{r print table of parameter estimates mentions}
+mentions_params %>%
+  select(-variable) %>%
+  pander(caption = "NBD parameters estimates for different methods", round = 4, missing = "")
+```
+
+```{r calculate expected counts for mention}
+mentions_expected <- 
+  mentions_params %>%
+  filter(model != "MLE (Zero-Inflated)") %>%
+  crossing(
+    data_frame(
+      mentions = full_seq(mentions$mentions, period = 1)
+    ) %>%
+    left_join(
+      mentions, by = 'mentions'
+    ) %>%
+    replace_na(list(users = 0)) %>% 
+    rename(Actual = users)
+  ) %>%
+  replace_na(list(pi = 0)) %>% 
+  rowwise() %>%
+  mutate(p_x = map_dbl(mentions, .f = fn_zinbd, r, alpha, pi)) %>%
+  group_by(model) %>%
+  mutate(expected = p_x * sum(Actual)) %>%
+  ungroup() %>%
+  mutate(chisq = (Actual - expected)^2 / expected)
+```
+
+```{r Mentions expected counts}
+mentions_expected %>%
+  select(mentions, Actual, model, expected) %>%
+  spread(model, expected) %>%
+  filter(mentions <= 8) %>%
+    pander(caption = "Estimated number of users for mentions (<= 5) by different estimation methods", 
+         round = 0, split.cells = 10)
+```
+
+The plot below shows the parameter estimates by MLE and means and zeros fit quite well.
+
+```{r plot results of nbd for mentions}
+ggplot() +
+  geom_bar(data = mentions_expected %>% distinct(mentions, Actual), aes(x = mentions, y = Actual), 
+           stat = 'identity', alpha = .75) +
+  geom_line(data = mentions_expected, aes(x = mentions, y = expected, colour = model), 
+            stat = 'identity') +
+  labs(x = "Mentions", y = "Users", title = "NBD Model for Count of Mentions", colour = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']]))
+```
+
+```{r Mentions - Find min num of posts to cut of for chi_squared test}
+n_mentions <- 1; percent_cells <- 1;
+while (percent_cells > 0.8) {
+  percent_cells <- 
+    mentions_expected %>%
+    mutate(mentions = if_else(mentions >= n_mentions, paste0(n_mentions,"+"), as.character(mentions))) %>%
+    group_by(model, mentions) %>%
+    summarise(
+      Actual = sum(Actual)
+      , expected = sum(expected)
+      , chisq = sum(chisq)
+    ) %>%
+    group_by(model) %>%
+    summarise(percent_expected = sum(expected > 5) / n()) %>%
+    summarise(min_percent_expected = min(percent_expected)) %>%
+    unlist() %>%
+    unname()
+  n_mentions <- n_mentions + 1
+}
+n_mentions <- floor((n_mentions-1)/5) * 5
+```
+
+```{r perform gof test for mentions}
+mentions_gof_test <- 
+  mentions_expected %>%
+      filter(model != "MLE (Zero-Inflated)") %>%
+      mutate(posts = if_else(mentions >= n_mentions, paste0(n_mentions,"+"), as.character(mentions))) %>%
+      group_by(model, mentions) %>%
+      summarise(
+        Actual = sum(Actual)
+        , expected = sum(expected)
+      ) %>%
+      mutate(chisq = (Actual - expected)^2 / expected) %>%
+      group_by(model) %>%
+      summarise(chisq = sum(chisq)) %>%
+      mutate(p.value = pchisq(chisq,
+      df = n_mentions - 2 - 1, lower.tail = FALSE))
+```
+
+
+Like before, to perform the $\chi^2$ goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_mentions`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_mentions` - 2 - 1 = `r n_mentions - 2 - 1` degrees of freedom. Though the plot above looked quite good, based on the $p$-values shown below, we have no evidence that the data came from the NBD model.
+
+```{r print table of gof results for mentions}
+mentions_gof_test %>%  
+  pander(caption = "Goodness of fit test for mentions received", round = 6)
+```
+
+## Likes
+
+```{r likes per user}
+likes_per_user <-
+  users %>%
+    left_join(
+      msg_likes, 
+      by = c('user_id' = 'liked_by')
+    ) %>%
+    group_by(user_id) %>%
+    summarise(
+      likes = sum(!is.na(msg_id))
+    )
+```
+
+We follow the same process for likes given as we did for posts and mentions. We note that the tail is a bit longer for likes as some users do lot of post-liking. The median number of likes given is **`r median(likes_per_user$likes)`** likes though the mean is **`r mean(likes_per_user$likes)`** likes.
+
+```{r histogram of likes per user}
+likes_per_user %>%
+  ggplot(aes(x = likes)) +
+  geom_histogram(binwidth = 1, fill = pal538[['blue']]) +
+  labs(x = "Likes Given per User", y = "Number of Users", title = "Distribution of Likes Given per User") +
+  theme_jrf(users_v = "rstudio")
+```
+
+```{r table of likes}
+likes <-
+  likes_per_user %>%
+  group_by(likes) %>%
+  summarise(users = n()) %>%
+  arrange(likes)
+
+likes %>%
+  head(10) %>%
+  pander(caption = "Number of users for count of likes given in period (bottom 10)")
+```
+
+```{r parameter estimation of likes}
+likes_params <- 
+  bind_rows(
+    fn_nbd_mle("MLE", likes_per_user$likes, zero_inflated = FALSE)
+    , fn_nbd_mle("MLE (Zero-Inflated)", likes_per_user$likes, zero_inflated = TRUE)
+    , fn_method_of_moments("Method of Moments", likes_per_user$likes)
+    , fn_means_and_zeros("Means and Zeros", likes_per_user$likes)
+  ) %>%
+  mutate(
+    model = factor(model, levels = c("MLE", "MLE (Zero-Inflated)","Method of Moments", "Means and Zeros"))
+    , variable = "likes"
+  ) %>%
+  select(variable, everything())
+```
+
+A careful observer of the plot above may have noted the magnitude of the counts are quite large. This is problematic when calculating gamma functions. For example, $\Gamma(100) = 9.3e^{155}$. To handle this, we used log-gamma and log-factorial functions and restated the first term of the NBD equation as 
+
+\begin{equation}
+\ \frac{\Gamma(r + x)}{\Gamma(r) x!} = e^{lgamma(r + x) - (lgamma(r) + lfactorial(x))}
+\end{equation}
+
+We estimate the parameters using each of the three methods as before and again find that the zero-inflated model does not fit the data and that the method of moments estimate is quite different from the MLE and means and zeros estimate.
+
+```{r print parameter estimates for likes}
+likes_params %>%
+  select(-variable) %>%
+  pander(caption = "NBD parameters estimates for different methods", round = 4, missing = "")
+```
+
+```{r calculate expected numbers for likes}
+likes_expected <- 
+  likes_params %>%
+  filter(model != "MLE (Zero-Inflated)") %>%
+  crossing(
+    data_frame(
+      likes = full_seq(likes$likes, period = 1)
+    ) %>%
+    left_join(
+      likes, by = 'likes'
+    ) %>%
+    replace_na(list(users = 0)) %>% 
+    rename(Actual = users)
+  ) %>%
+  replace_na(list(pi = 0)) %>% 
+  rowwise() %>%
+  mutate(p_x = map_dbl(likes, .f = fn_zinbd, r, alpha, pi)) %>%
+  group_by(model) %>%
+  mutate(expected = p_x * sum(Actual)) %>%
+  ungroup() %>%
+  mutate(chisq = (Actual - expected)^2 / expected)
+```
+
+Below is a comparison of the expected counts for the left-end of the likes distribution:
+
+```{r print table of expected counts for likes}
+likes_expected %>%
+  select(likes, Actual, model, expected) %>%
+  spread(model, expected) %>%
+  filter(likes <= 8) %>%
+  pander(caption = "Estimated number of users for likes given (<= 5) by different estimation methods", 
+         round = 0, split.cells = 10)
+```
+
+Aside from the large spike for the method of moments, the MLE and means and zeros model do not look too bad. However, we can see quite a few gray spikes above the blue and green lines in the 10-30 range indicating poor fit there.
+
+```{r plot results for likes}
+ggplot() +
+  geom_bar(data = likes_expected %>% distinct(likes, Actual), aes(x = likes, y = Actual), 
+           stat = 'identity', alpha = 0.75) +
+  geom_line(data = likes_expected, aes(x = likes, y = expected, colour = model), stat = 'identity') +
+  labs(x = "Likes Given", y = "Users", title = "NBD Model for Count of Likes Given", colour = NULL) +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']]))
+```
+
+```{r Likes - Find min num of posts to cut of for chi_squared test}
+n_likes <- 1; percent_cells <- 1;
+while (percent_cells > 0.8) {
+  percent_cells <- 
+    likes_expected %>%
+    mutate(likes = if_else(likes >= n_likes, paste0(n_likes,"+"), as.character(likes))) %>%
+    group_by(model, likes) %>%
+    summarise(
+      Actual = sum(Actual)
+      , expected = sum(expected)
+      , chisq = sum(chisq)
+    ) %>%
+    group_by(model) %>%
+    summarise(percent_expected = sum(expected > 5) / n()) %>%
+    summarise(min_percent_expected = min(percent_expected)) %>%
+    unlist() %>%
+    unname()
+  n_likes <- n_likes + 1
+}
+n_likes <- floor((n_likes-1)/5) * 5
+```
+
+
+```{r perform gof test for likes}
+likes_gof_test <- 
+  likes_expected %>%
+      filter(model != "MLE (Zero-Inflated)") %>%
+      mutate(posts = if_else(likes >= n_likes, paste0(n_likes,"+"), as.character(likes))) %>%
+      group_by(model, likes) %>%
+      summarise(
+        Actual = sum(Actual)
+        , expected = sum(expected)
+      ) %>%
+      mutate(chisq = (Actual - expected)^2 / expected) %>%
+      group_by(model) %>%
+      summarise(chisq = sum(chisq)) %>%
+      mutate(p.value = pchisq(chisq, df = n_likes - 2 - 1, lower.tail = FALSE))
+```
+
+Finally we perform the $\chi^2$ goodness of fit test and first rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_likes`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_likes` - 2 - 1 = `r n_likes - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have no evidence that the data came from the NBD model. Moreover, we note how large the $\chi^2$ test statistics are for the likes given in comparison to posts or mentions, indicating how poor a fit the NBD model is for the likes given data.
+
+```{r print gof test results for likes}
+likes_gof_test %>%  
+  pander(caption = "Goodness of fit test for likes given", round = 6)
+```
+
+## Compare Parameter Estimates
+
+```{r}
+mle_models <- 
+  bind_rows(post_params, mentions_params, likes_params) %>%
+  filter(model == "MLE") %>%
+  mutate(variable = factor(variable, levels = c("posts","mentions","likes"))) %>%
+  select(-pi, -model)
+
+mle_models %>%
+  pander(caption = "", round = 4)
+```
+
+```{r}
+mle_models %>%
+  mutate(
+  gamma = map2(r, alpha, function(.x, .y) {rgamma(10000, .x, .y)})
+  ) %>%
+  unnest() %>%
+  ggplot(aes(x = gamma, colour = variable)) +
+  geom_line(stat = "density") +
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position	= "top") + 
+  scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']])) +
+  scale_x_continuous(breaks = scales::pretty_breaks(), limits = c(NA, 50)) +
+  scale_y_continuous(limits = c(NA, NA)) +
+  labs(x = expression(lambda), y = expression(f(lambda)), colour = NULL,
+       title = "Estimated Distributions of Lambda") +
+   geom_label(data = mle_models %>% cbind(x = 20, y = c(.6,.4,.2)) %>%
+                    mutate(label = paste0("r ==", formatC(r, digits = 4, format = 'f'), 
+                                          "~~alpha==",formatC(alpha, digits = 4, format = 'f'))),
+             aes(x, y, label = label), parse = TRUE, show.legend = FALSE,  family = "DecimaMonoPro")
+```
+
+## Lorenz Curve
+
+```{r}
+Lp <-  
+  mle_models %>%
+  crossing(p = seq(from = 0, to = 1, by  = 0.01)) %>%
+  mutate(L_p = pgamma(qgamma(p, r, 1), r + 1))
+ 
+rule_8020 <-
+  Lp %>%
+  filter(p == 0.8)
+
+Lp %>% 
+  ggplot(aes(x = p, y = L_p, colour = variable)) +
+  geom_line() +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), colour = "black", 
+               linetype = "dashed", size = .5) +
+  labs(x = "Percent of Users", y = "Percent of Activity", 
+       title = "Lorenz Curves for GroupMe Activites", colour = NULL) +
+  scale_x_continuous(breaks = scales::pretty_breaks(), labels = scales::percent) + 
+  scale_y_continuous(labels = scales::percent) +
+  geom_point(data = rule_8020, aes(wx = p, y = L_p, colour = variable)) + 
+  geom_label_repel(data = rule_8020, aes(wx = p, y = L_p, colour = variable, 
+                    label = scales::percent(L_p)), show.legend = FALSE,
+                    family = "DecimaMonoPro") +
+  theme_jrf(users_v = "rstudio") + 
+  theme(legend.position	= "top") + 
+  scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']]))
+```
+
+## Gender
+
+```{r}
+activity_gender <- 
+  users %>%
+  left_join(
+      msgs %>% group_by(user_id) %>% summarise(posts = n()), 
+      by = c('user_id')
+    ) %>%
+  left_join(
+      msg_mentions %>% group_by(user_ids) %>% summarise(mentions = n()), 
+      by = c('user_id' = 'user_ids')
+  ) %>%
+  left_join(
+      msg_likes %>% group_by(liked_by) %>% summarise(likes = n()), 
+      by = c('user_id' = 'liked_by')
+  ) %>%
+  replace_na(list(posts = 0, mentions = 0, likes = 0)) %>%
+  select(user_id, gender = sex, posts, mentions, likes)
+```
+
+```{r}
+gender_params <- data_frame()
+combins <- crossing(
+    model = c("MLE", "MLE (Zero-Inflated)")
+  , activity = c("posts", "mentions","likes")
+  , gender = c("Female","Male", "Combined")
+)
+for (i in 1:nrow(gender_combinations)) {
+  
+  if (combins$gender[i] == "Combined") {
+    genders <- paste0('c("Female", "Male")')
+  } else {
+    genders <-  paste0('c("', combins$gender[i], '")')
+  }
+  
+  isZI <- if_else(combins$model[i] == "MLE", FALSE, TRUE)
+  
+  input <- 
+    activity_gender %>% 
+    filter_(.dots= paste0("gender %in% ", genders)) %>%
+    select_(combins$activity[i]) %>%
+    unlist() %>%
+    unname()
+
+  output <- 
+    fn_nbd_mle(combins$model[i], input, zero_inflated = isZI) %>% 
+        cbind(gender = combins$gender[i], activity = combins$activity[i])
+  
+  par <- output %>% select(r, alpha, pi) %>% unlist() %>% unname()
+  
+  ll <- -1 * fn_max_ll(par = par, zero_inflated = isZI, x = input)
+  
+  output2 <- output %>% cbind(ll = ll)
+  
+  gender_params <- bind_rows(gender_params, output2)
+}
+
+gender_params2 <-
+  gender_params %>%
+    mutate(
+      model = factor(model, levels = c("MLE", "MLE (Zero-Inflated)"))
+      , activity = factor(activity, levels = c("posts", "mentions","likes"))
+      , gender = factor(gender, levels = c("Female","Male", "Combined"))
+    ) %>%
+    select(activity, gender, model, everything()) %>%
+    arrange(activity, gender, model)
+```
+
+```{r}
+gender_params2 %>%
+  pander(caption = "", missing = "", round = 4)
+```
+
+```{r}
+gender_params2 %>%
+  filter(model != "MLE (Zero-Inflated)")
+```
+
+```{r}
+gender_expected <- 
+activity_gender %>% 
+  gather(activity, count, -user_id, -gender) %>%
+  group_by(activity, count) %>%
+  count() %>%
+  group_by(activity) %>%
+  complete(count= full_seq(count, 1)) %>%
+  ungroup() %>%
+  select(-n) %>%
+  crossing(gender = factor(c("Female","Male"), levels = c("Female","Male"))) %>%
+  left_join(
+    activity_gender %>% 
+      gather(activity, count, -user_id, -gender) %>%
+      group_by(gender, activity, count) %>%
+      count()
+    , by = c('activity', 'count','gender')
+  ) %>%
+  replace_na(list(n = 0)) %>%
+  left_join(
+    gender_params2 %>%
+      filter(gender != "Combined" & model != "MLE (Zero-Inflated)")
+    , by = c('activity','gender')
+  ) %>%
+  replace_na(list(pi = 0)) %>%
+  rowwise() %>%
+  mutate(p_x = map_dbl(count, .f = fn_zinbd, r, alpha, pi)) %>%
+  group_by(activity, gender) %>%
+  mutate(expected = p_x * sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    gender = factor(gender, levels = c("Female","Male"))
+    , activity = factor(activity, levels = c("posts", "mentions","likes"))
+  )
+```
+
+```{r fig.height=6}
+gender_expected %>%
+  group_by(activity, gender) %>%
+  mutate(total = sum(n)) %>%
+  ungroup() %>%
+  group_by(activity, count) %>%
+  mutate(all = sum(total)) %>%
+  ungroup() %>%
+  mutate(n_scaled = n / total * all) %>%
+  ggplot() +
+    geom_bar(aes(x = count, y = n_scaled, fill = gender), stat = 'identity', position = 'dodge') +
+    labs(x = NULL, y = "Users Scaled", title = "Counts of Activity Scaled to Compare Genders", fill = NULL) +
+    facet_wrap(~ activity, scales = 'free', ncol = 1) + 
+    theme_jrf(users_v = "rstudio") +
+    theme(legend.position = 'top') +
+    scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']])) +
+    scale_fill_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
+```
+
+```{r}
+gender_expected %>%
+  ggplot() +
+    geom_line(aes(x = count, y = expected, colour = gender), stat = 'identity') +
+    labs(x = NULL, y = "Users", title = "NBD Models by Activity by Gender", colour = NULL) +
+    facet_wrap(~ activity, scales = 'free') + 
+    theme_jrf(users_v = "rstudio") +
+    theme(legend.position = 'top') +
+    scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']])) +
+    scale_fill_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
+```
+
+
+```{r}
+Lp_gender <-  
+  gender_params2 %>%
+  filter(gender != "Combined" & model != "MLE (Zero-Inflated)") %>%
+  crossing(p = seq(from = 0, to = 1, by  = 0.01)) %>%
+  mutate(L_p = pgamma(qgamma(p, r, 1), r + 1))
+ 
+rule_8020_gender <-
+  Lp_gender %>%
+  filter(p == 0.8)
+
+Lp_gender %>% 
+  ggplot(aes(x = p, y = L_p, colour = gender)) +
+  geom_line() +
+  facet_grid(. ~ activity) +
+  geom_segment(aes(x = 0, xend = 1, y = 0, yend = 1), colour = "black", 
+               linetype = "dashed", size = .5) +
+  labs(x = "Percent of Users", y = "Percent of Activity", 
+       title = "Lorenz Curves for GroupMe Activites by Gender", colour = NULL) +
+  scale_x_continuous(breaks = scales::pretty_breaks(), labels = scales::percent) + 
+  scale_y_continuous(labels = scales::percent) +
+  geom_point(data = rule_8020_gender, aes(wx = p, y = L_p, colour = gender)) + 
+  geom_label_repel(data = rule_8020_gender, aes(wx = p, y = L_p, colour = gender, 
+                    label = scales::percent(L_p)), show.legend = FALSE,
+                    family = "DecimaMonoPro") +
+  theme_jrf(users_v = "rstudio") + 
+  theme(legend.position	= "top") + 
+  scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
+```
+
+```{r}
+gender_params2 %>%
+  filter(model != "MLE (Zero-Inflated)") %>%
+  select(activity, gender, ll) %>%
+  spread(gender, ll) %>%
+  mutate(chisq = 2* ((Female + Male) - Combined)) %>%
+  mutate(p.value = pchisq(chisq, df = 4 - 2, lower.tail = FALSE)) %>%
+  pander(caption = "", round = 4)
+```
+
+# Conclusion
+
+## Limitations
+
+
+

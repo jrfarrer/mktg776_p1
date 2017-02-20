@@ -1,0 +1,496 @@
+---
+title: "GroupMe Data Download"
+author: "Jordan Farrer"
+date: '`r format(Sys.Date(), "%Y-%m-%d")`'
+params:
+  rerun:
+    value: false
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    df_print: paged
+    theme: flatly
+    css: style.css
+    
+---
+
+# Executive Summary
+
+```{r setup packages, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = 'center', fig.height = 4, fig.width = 7.2)
+knitr::knit_hooks$set(inline = function(x) {if(!is.numeric(x)){ x }else{ prettyNum(round(x,2), big.mark=",") } })
+```
+
+# Data Acquisition
+
+```{r load packages, results = 'hide'}
+pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, RcppRoll, jrfTools, googlesheets)
+```
+
+```{r additional setup hidden, include = FALSE}
+panderOptions('round', 2)
+panderOptions('keep.trailing.zeros', TRUE)
+data_dir <- 'data/'
+code_dir <- 'code/'
+viz_dir <- 'viz/'
+
+map(c(data_dir, code_dir, viz_dir), dir.create, showWarnings = FALSE)
+suppressMessages(gs_auth(token = "/home/rstudio/Dropbox/googlesheets_token.rds", verbose = FALSE))
+```
+
+
+GroupMe uses a token (which created at [dev.groupme.com/session/new](https://dev.groupme.com/session/new)) to access the API. My API token stored in the file `.groupme_api_token` and loaded into `token`. Below we first download information about each group my account has access to:
+
+```{r download groups}
+base_url <- "https://api.groupme.com/v3/"
+token <- paste0("?token=", system("cat .groupme_api_token", intern = TRUE))
+
+i <- 1; more_response <- TRUE; groups <- tibble();
+while (more_response) {
+    url <- paste0(base_url,"groups", token, "&per_page=10&page=", i)
+    tmp_df <- fromJSON(url, flatten = TRUE)$response %>% as_tibble()
+    if (nrow(tmp_df) == 0) {
+      more_response <- FALSE
+    } else {
+      groups <- bind_rows(groups, tmp_df)
+      i <- i + 1
+    }
+}
+```
+
+
+```{r table of sample groups, echo = FALSE, results = 'asis'}
+groups %>%
+  filter(name %in% c("Wharton - 2018", "HOLEKAMP (w)A(ng)BUSE","WG 18 Cohort 2F","Wharton SpikeBall")) %>%
+  select(id, group_id, name, type) %>%
+  pander(caption = "Current GroupMe groups that I am in ")
+```
+
+Next create functions to download and save the messages from a single group. We pass it the `group_id` associated with **Wharton - 2018**. This is complicated a bit by the the fact that you are only able to down 100 messages at a time. So the json for one batch of 100 will look different from another batch of 100. In order to compensate for this, we identify a general structure of variables and create standardized data_frame's that can be bound together.
+
+```{r download raw messages, eval = params$rerun}
+fn_message_structure <- function(tmp_list) {
+  all_column <- 
+    lapply(tmp_list, function(x) {
+      sapply(x, class) %>% 
+        as.data.frame() %>% 
+        rownames_to_column(var = 'column') %>% 
+        as_tibble() %>% 
+        setNames(c("column", "class"))
+      }
+    ) %>% 
+      bind_rows() %>%
+      group_by(column, class) %>% 
+      count() %>%
+      ungroup()
+  
+  structure <- 
+    all_column %>%
+      group_by(column) %>%
+      filter(row_number() == 1) %>%
+      ungroup()
+  
+  return(structure)
+}
+
+fn_standardize_message_df <- function(df, structure) {
+  
+  # Create table of new columns to add
+  new_cols <-
+    structure %>%
+    filter(!(column %in% names(df)))
+
+  # Initialize an empty list
+  structure_list <- list()
+  if(nrow(new_cols) > 0) {
+    for (i in 1:nrow(new_cols)) {
+      structure_list[[new_cols$column[i]]]  <- as.formula(paste0("~as.", new_cols$class[i], "(rep(NA,", nrow(df),"))"))
+    }
+  }
+  
+  # From df bind new data frame of NAs and select in right order
+  df %>%
+    bind_cols(
+      tibble_(structure_list)    
+    ) %>%
+    select(one_of(structure$column)) %>%
+    mutate_if(str_detect(names(.), "user\\.id"), as.integer)
+
+}
+
+fn_dl_group_messages <- function(group_id) {
+  
+  i <- 1; more_response <- TRUE; tmp_list <- list();last_id <- "";
+  while(more_response) {
+    before_id_param <- ifelse(last_id == "", "", paste0("&before_id=", last_id))
+    url <- paste0(base_url,"groups/",group_id,"/messages", token, "&limit=100", before_id_param)  
+    tmp_msg <- try(
+      fromJSON(url, flatten = TRUE)$response$messages %>% as_tibble()
+      , silent = TRUE
+    )
+    if ("try-error" %in% class(tmp_msg)) {
+      more_response <- FALSE
+    } else {
+      tmp_list[[i]] <- tmp_msg 
+      last_id <- tail(tmp_msg, 1)$id  
+      i <- i + 1
+    }
+  }
+  
+  structure <- fn_message_structure(tmp_list)
+  tmp_list2 <- lapply(tmp_list, fn_standardize_message_df, structure)
+  all_messages <- bind_rows(tmp_list2)
+  saveRDS(all_messages, paste0(data_dir, group_id, ".RDS"))
+  return(all_messages)
+}  
+
+all_messages <- fn_dl_group_messages(group_id = "19105351")
+```
+
+```{r hidden file load, include = FALSE}
+all_messages <- readRDS(paste0(data_dir, "19105351", ".RDS"))
+```
+
+
+The `all_messages` data frame contains columns with nested data frames and vectors.
+
+```{r show most recent messages, echo = FALSE}
+all_messages %>%
+  head(10)
+```
+
+# Data Processing
+
+In order to better interact with the data, we will create "tables" (in the SQL sense):
+
+1. Users
+2. Messages
+3. Likes
+4. Media (pics, videos, gifs)
+5. Mentions
+
+## Users
+
+We unnest the members data frame from the users data frame to get the current set of users in the **Wharton - 2018** GroupMe. 
+
+```{r unnest users from groups}
+users_sex <- gs_title("groupme_users") %>%  gs_read(ws = "users")
+
+users <- 
+  groups %>% 
+  filter(name == "Wharton - 2018") %>%
+  select(group_id, members) %>% 
+  unnest() %>%
+  left_join(
+    users_sex %>%
+      select(user_id, sex) %>%
+      mutate(
+        user_id = as.character(user_id)
+        , sex = factor(sex, levels = c("Female","Male"))
+      )
+    , by = 'user_id'
+  ) %>%
+  arrange(user_id)
+```
+
+```{r print users table, echo = FALSE}
+users %>%
+  head(10)
+```
+
+## Messages
+
+GroupMe records each event (e.g. user entering the group, creating an event, changing their nickname for the group), so we isolate only the messages sent my users create a "fact table" which is keyed on `msg_id`.
+
+```{r isolate user messages}
+msgs_from_jan <-
+  all_messages %>%
+  filter(system == FALSE & is.na(event.type)) %>%
+  select(group_id, id, created_at, user_id, name, text) %>%
+  rename(msg_id = id) %>%
+  mutate(created_at = as.POSIXct(created_at, origin = "1970-01-01", tz = "America/New_York"))
+```
+
+```{r print msgs_from_jan table, echo = FALSE}
+msgs_from_jan %>%
+  head(10)
+```
+
+## Likes
+
+Each message can have many likes so it's best to store this information as a separate table.
+
+```{r unnest likes}
+msg_likes <-
+  all_messages %>% 
+  filter(system == FALSE & is.na(event.type)) %>%
+  rowwise() %>%
+  filter(class(favorited_by) != "list") %>%
+  select(id, favorited_by) %>% 
+  unnest() %>%
+  rename(
+    msg_id = id
+    , liked_by = favorited_by
+  )
+```
+
+```{r print likes table, echo = FALSE}
+msg_likes %>%
+  head(10)
+```
+
+## Media (pics, videos, gifs)
+
+The media sent in a message is buried in another part of the json file. We unnest the the media and store individual links in a separate table.
+
+```{r unnest media}
+msg_media <-
+  all_messages %>%
+  filter(system == FALSE & is.na(event.type)) %>%
+  select(id, attachments) %>%
+  unnest() %>%
+  filter(type %in% c("linked_image", "image","video")) %>%
+  select(msg_id = id, type, url) %>%
+  mutate(type = ifelse(type == "linked_image", "gif", type)) 
+``` 
+
+```{r print media table, echo = FALSE}
+msg_media %>%
+  head(10)
+```
+
+## Message Mentions
+
+Within each mesage, a user can mention multiple users so we separate this into another table as well.
+
+```{r unnest message mentions}
+msg_mentions <-
+  all_messages %>%
+  filter(system == FALSE & is.na(event.type)) %>%
+  select(id, attachments) %>%
+  unnest() %>%
+  filter(type %in% c("mentions")) %>%
+  select(msg_id = id, user_ids) %>% 
+  unnest()
+```
+
+```{r print message mentions, echo = FALSE}
+msg_mentions %>%
+  head(10)
+```
+
+
+# Exploratory Data Analysis
+
+In our data download there are **`r nrow(all_messages)`** messages. However only **`r nrow(msgs_from_jan)`** messages are user-sent (as opposed to system generated). As of **`r msgs_from_jan %>% arrange(desc(created_at)) %>% select(created_at) %>% head(1) %>% mutate(created_at = as.character(created_at)) %>% unlist()`** there were **`r nrow(users)`** members of the Wharton - 2018 GroupMe, though only **`r msgs_from_jan %>% summarise(n_distinct(user_id)) %>% unlist()`** people had posted at least one mesage. Below is the evolution of posts over time. We see the GroupMe was created in January 2016 and the first big spike (July 22nd) came when cohorts were announced.
+
+
+```{r}
+msgs_from_jan %>%
+  mutate(day = floor_date(created_at, unit = "day")) %>%
+  ggplot(aes(x = day)) +
+  geom_line(stat = "count") +
+  labs(x = NULL, y = "Posts", title = "Daily Post Volume") +
+  theme_jrf(users_v = "rstudio")
+```
+
+A more useful way is to view a 7-day rolling count as it takes away from the daily volatily and the sharpness of weekly data.
+
+```{r}
+min_day <- floor_date(min(msgs_from_jan$created_at), unit = "day")
+max_day <- ceiling_date(max(msgs_from_jan$created_at), unit = "day")
+
+data_frame(day = as_date(seq(from = min_day, to = max_day, by = "day"))) %>%
+  left_join(
+    msgs_from_jan %>%
+      mutate(message_day = as_date(round_date(created_at, unit = "day"))) %>%
+      group_by(message_day) %>%
+      count()
+    , by = c('day'='message_day')
+  ) %>%
+  mutate(l7_day = roll_sum(n, 7, align = "right", fill = NA, na.rm = TRUE)) %>%
+  ggplot(aes(x = day, y = l7_day)) +
+  geom_line() +
+  labs(x = NULL, y = "Posts", title = "7-Day Rolling Sum of Posts") +
+  theme_jrf(users_v = "rstudio")
+```
+
+## Posts per User
+
+We see that the distribution of post-per users is highly zero-inflated as `r nrow(users) - msgs_from_jan %>% summarise(n_distinct(user_id)) %>% unlist()` users have never posted. 
+
+```{r}
+posts_per_user <-
+  users %>%
+    left_join(
+      msgs_from_jan, 
+      by = c('user_id')
+    ) %>%
+    group_by(user_id) %>%
+    summarise(
+      posts = sum(!is.na(msg_id))
+    )
+
+posts_per_user %>%
+  ggplot(aes(x = posts)) +
+  geom_histogram(binwidth = 1) +
+  labs(x = "Posts per User", y = "Number of Users", title = "Distribution of Posts per User") +
+  theme_jrf(users_v = "rstudio")
+```
+
+The median number of posts is `r median(posts_per_user$posts)` and the mean is `r mean(posts_per_user$posts)` (sd = `r sd(posts_per_user$posts)`). On the right end of the distribution there are some users that post a lot. Below are the top posts by post count:
+
+```{r results = 'asis'}
+msgs_from_jan %>%
+  left_join(users, by = 'user_id') %>%
+  group_by(nickname) %>%
+  summarise(posts = n()) %>%
+  arrange(desc(posts)) %>%
+  head(10) %>%
+  pander(caption = "Top Posterss")
+```
+
+## Likes to Posts Metric
+
+Who get's the most love per post? 
+
+```{r}
+users %>%
+  left_join(
+    msgs_from_jan, 
+    by = c('user_id')
+  ) %>%
+  left_join(
+    msg_likes %>%
+      group_by(msg_id) %>%
+      summarise(likes = n())
+    , by = 'msg_id'
+  ) %>%
+  replace_na(list(likes = 0)) %>%
+  group_by(user_id, nickname) %>%
+  summarise(
+    posts = sum(!is.na(msg_id))
+    , likes = sum(likes)
+  ) %>%
+  ungroup() %>%
+  mutate(likes_to_post = likes / posts) %>%
+  filter(posts > 10) %>%
+  arrange(desc(likes_to_post)) %>%
+  select(-user_id) %>%
+  head(10) %>%
+  pander(caption = "Likes per Post (for those with at least 10 posts)")
+```
+
+## Time Trends
+
+```{r}
+msgs_from_jan %>%
+  mutate(
+    hour = hour(created_at) 
+    , day = wday(created_at, label = TRUE)
+  ) %>%
+  group_by(hour, day) %>%
+  count() %>%
+  ggplot(aes(hour, y = n)) + 
+  geom_line(stat = 'identity') +
+  facet_grid(.~  day) +
+  scale_x_continuous(breaks = c(0, 6, 12, 18)) +
+  labs(x = 'Hour', y = 'Posts', title = 'Post Volume by Day of Week') +
+  theme_jrf(users_v = 'rstudio')
+```
+
+
+```{r}
+msgs_from_jan %>% 
+  mutate(created_at = update(created_at, year = 2010, month = 1, day = 1)) %>% 
+  ggplot(aes(created_at)) +
+  geom_freqpoly(binwidth = 60*15) +
+  scale_x_datetime(date_minor_breaks = "1 hour", 
+                   limits = c(ymd_hms("2010-01-01 00:00:00", tz = "America/New_York"), 
+                              ymd_hms("2010-01-02 00:00:00", tz = "America/New_York")),
+                   date_labels = "%H:%M") +
+  labs(x = NULL, y = 'Posts', title = 'Post Volume by Time of Day') +
+  theme_jrf(users_v = 'rstudio')
+```
+
+
+```{r}
+msgs_from_jan %>% 
+  mutate(created_at = update(created_at, year = 2010, month = 1, day = 1, hour = 0)) %>% 
+  ggplot(aes(created_at)) +
+  geom_freqpoly(binwidth = 30) +
+  scale_x_datetime(date_minor_breaks = "1 min", 
+                   limits = c(ymd_hms("2010-01-01 00:00:00", tz = "America/New_York"), 
+                              ymd_hms("2010-01-01 01:00:00", tz = "America/New_York")),
+                   date_labels = "%M") +
+  labs(x = NULL, y = 'Posts', title = 'Post Volume by Minute of Hour') +
+  theme_jrf(users_v = 'rstudio')
+```
+
+## Likes by User
+
+Who gives out the most likes? Neal takes the cake at the moment.
+
+```{r}
+likes_per_user <-
+  users %>%
+    left_join(
+      msg_likes, 
+      by = c('user_id' = 'liked_by')
+    ) %>%
+    group_by(user_id, nickname) %>%
+    summarise(
+      likes = sum(!is.na(msg_id))
+    )
+
+likes_per_user %>%
+  ggplot(aes(x = likes)) +
+  geom_histogram(binwidth = 1) +
+  labs(x = "Likes per User", y = "Number of Users", title = "Distribution of Likes per User") +
+  theme_jrf(users_v = "rstudio")
+```
+
+```{r}
+likes_per_user %>%
+  select(-user_id) %>%
+  arrange(desc(likes)) %>%
+  head(10) %>%
+  pander("Top Users by Likes Given")
+```
+
+# Data for MKTG776 Project 1
+
+For the first project in Professor Peter Fader's *Applied Probability Models in Marketing* (MTKG776), to create count datasets we will focus on messages since August 8, 2016 (the first day of pre-term). Though there was some movement into and out of the group, we will assume that all members of the group at present have been present for the full duration. There are **`r msgs_from_jan %>% anti_join(users, by = 'user_id') %>% summarise(n_distinct(user_id)) %>% unlist()`** users that posted and have since left the group. These messages (and associated likes, mention, and media) will not be included in the dataset for analysis.
+
+```{r}
+msgs_from_jan %>% 
+  anti_join(users, by = 'user_id') %>% 
+  group_by(name) %>%
+  summarise(posts = n()) %>%
+  arrange(desc(posts)) %>%
+  pander(caption = "Users that posted and have since left the group")
+```
+
+We create a set of messages that limits to only the time period after August 8, 2016 and removes the users above.
+
+```{r}
+msgs <- 
+  msgs_from_jan %>%
+    inner_join(users %>% select(user_id), by = 'user_id') %>%
+    filter(created_at >= "2016-08-08") %>%
+    arrange(created_at)
+```
+
+```{r echo = FALSE}
+msgs %>%
+  head(10)
+```
+
+Finally, we save each of the files as a single `rda`.
+
+```{r}
+save(users, msgs, msg_likes, msg_media, msg_mentions, file = paste0(data_dir, "groupme_776.rda"))
+```
+
