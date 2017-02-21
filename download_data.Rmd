@@ -18,18 +18,18 @@ output:
 
 # Executive Summary
 
-```{r setup packages, include = FALSE}
+```{r etl-setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, fig.align = 'center', fig.height = 4, fig.width = 7.2)
 knitr::knit_hooks$set(inline = function(x) {if(!is.numeric(x)){ x }else{ prettyNum(round(x,2), big.mark=",") } })
 ```
 
 # Data Acquisition
 
-```{r load packages, results = 'hide'}
+```{r etl-load-packages, results = 'hide'}
 pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, RcppRoll, jrfTools, googlesheets)
 ```
 
-```{r additional setup hidden, include = FALSE}
+```{r etl-additional-setup, include = FALSE}
 panderOptions('round', 2)
 panderOptions('keep.trailing.zeros', TRUE)
 data_dir <- 'data/'
