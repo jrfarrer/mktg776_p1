@@ -6,12 +6,12 @@ header-includes:
 date: '2017-02-23'
 output:
   bookdown::html_document2:
+    css: style.css
     number_sections: yes
     toc: yes
     toc_depth: 2
     toc_float: yes
-    css: style.css
-  pdf_document:
+  bookdown::pdf_document2:
     fig_caption: yes
     number_sections: yes
     toc: yes
@@ -33,14 +33,12 @@ knitr::knit_hooks$set(
 ```
 
 ```{r load packages, results = 'hide'}
-pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, jrfTools, extrafont, RcppRoll, ggrepel, DT)
+pacman::p_load(tidyverse, forcats, pander, stringr, lubridate, jrfTools, extrafont, RcppRoll, ggrepel, tm, pdftools)
 ```
 
 ```{r additional setup hidden, include = FALSE}
 panderOptions('round', 2)
 panderOptions('keep.trailing.zeros', TRUE)
-panderOptions('table.caption.prefix', 'Table: ')
-options(knitr.table.format = 'pandoc', knitr.kable.NA = '')
 
 data_dir <- 'data/'
 code_dir <- 'code/'
@@ -49,11 +47,36 @@ viz_dir <- 'viz/'
 map(c(data_dir, code_dir, viz_dir), dir.create, showWarnings = FALSE)
 ```
 
+```{r}
+fn_cound_words <- function(file) {
+  txt <- pdf_text(file)
+  corp1 <- VCorpus(VectorSource(txt))
+  corp2 <- tm_map(corp1, stripWhitespace)
+  corp3 <- tm_map(corp2, removePunctuation)
+  corp4 <- tm_map(corp3, content_transformer(tolower))
+  corp5 <- tm_map(corp4, removeNumbers)
+  dtm <- TermDocumentMatrix(corp5)
+  dtm %>% as.matrix() %>% sum()
+}
+
+n_words <- fn_cound_words(paste0("groupme.pdf"))
+```
+
+**Word Count**: `r n_words`
+
 # Executive Summary
 
 There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.  There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class. There are approximately 850 members of the Wharton 2018 MBA class.
 
-# Data
+# Background
+
+## Objective
+
+Our objective with this Wharton 2018 GroupMe analysis is to answer the following questions:
+
+1. Is the rate of posting, being mentioned, and liking posts different?
+2. Is there variation in the concentration of posting, being mentioned, and liking posts?
+3. Do females and males interact differently with the platform through the lens of posting, being mentioned, and liking posts?
 
 ```{r results = 'hide', eval = FALSE}
 rmarkdown::render("download_data.Rmd", params = list(rerun = FALSE))
@@ -69,17 +92,17 @@ load(paste0(data_dir, "groupme_776.rda"))
 knitr::include_graphics(paste0(viz_dir,'groupme_logo.png'))
 ```
 
-You have just decided to attend Wharton business school. After paying your deposit and joining the Facebook group, the next thing you do is join the class GroupMe. [GroupMe](https://groupme.com) is messaging service conceived and built in 2010 and was later acquired by Skype (and thus a Microsoft holding). Unlike Whatsapp or iMessage, GroupMe is designed for *group messaging* rather than one-on-one conversations. As such it's become the message platform *du jour* for university students as it supports groups with hundreds of users. Below is a sample message within a thread. You can see 3 primary actions: 
+You have just decided to get your MBA Wharton business school. After paying your deposit and joining the Facebook group, the next thing you do is join the class GroupMe. [GroupMe](https://groupme.com) is messaging service created in 2010 and later acquired by Skype (and thus a Microsoft holding). Unlike Whatsapp or iMessage, GroupMe is designed for *group messaging* rather than one-on-one conversations. As such, it's become the message platform *du jour* for university students as it supports groups with hundreds of users. Below is a screenshot of the Wharton 2018 GroupMe that shows the following three primary actions:
 
 1. Posts - messages sent by users
-2. Mentions - \@'ing another user, which alerts them
+2. Mentions - \@'ing another user, which sends them an alert
 3. Likes - heart-ing a post to show you like it
 
-```{r groupme-example, fig.cap = 'Screenshot showing posts, mentions, and likes', out.width = '40%'}
-knitr::include_graphics(paste0(viz_dir,'groupme_example.jpg'))
+```{r groupme-example, fig.cap = 'Screenshot showing posts, mentions, and likes', out.width = '60%'}
+knitr::include_graphics(paste0(viz_dir,'iphone_groupme.png'))
 ```
 
-The data in this analysis is from the "Wharton - 2018" GroupMe group (often just referred to as the Wharton 2018 GroupMe). GroupMe has an [API](dev.groupme.com) that allows developers to access groups and messages. After creating an access token, we built a pipeline to acquire and process the users and messages from GroupMe for this group (see [this data processing documentation]() for details). After parsing the json's and cleaning the data, we created a dataset of tables illustrated in the diagram below:
+The data in this analysis is from the "Wharton - 2018" GroupMe group (often just referred to as the Wharton 2018 GroupMe). GroupMe has an [API](dev.groupme.com) that allows developers to access groups and messages. After creating an access token, we built a pipeline to acquire and process the users and messages from GroupMe for this group (see [this data processing documentation](https://github.com/available_after_whooppee/mktg776_p1) for details). After parsing the json's and cleaning the data, we created a dataset of tables illustrated in the diagram below:
 
 ```{r fig.cap = 'GroupMe data organization', out.width = '60%'}
 knitr::include_graphics(paste0(viz_dir,'groupme_erd.png'))
@@ -87,7 +110,23 @@ knitr::include_graphics(paste0(viz_dir,'groupme_erd.png'))
 
 ## Wharton 2018 GroupMe
 
-There are **`r nrow(users)`** users in the Wharton 2018 GroupMe. There are approximately 850 members of the Wharton 2018 MBA class. Though the group was created in January 2016, we trimmed the dataset to August 8, 2016 (first day of pre-term) to provide an accurate window in which to observe the actions of the users. In other words, all users have the same observation period. We removed users from the dataset that have left the group and discuss the possibility of late joiners in the final Limitations section. The last post in our dataset is **`r msgs %>% arrange(desc(created_at)) %>% select(created_at) %>% head(1) %>% mutate(created_at = as.character(created_at)) %>% unlist()`**. There have been **`r nrow(msgs)`** posts by **`r msgs %>% summarise(n_distinct(user_id)) %>% unlist()`** distinct users. Below is a time series of the posts:
+```{r}
+last_post <- 
+  msgs %>% 
+  arrange(desc(created_at)) %>% 
+  select(created_at) %>% 
+  head(1) %>% 
+  unlist() %>% 
+  unname() %>% 
+  as_datetime(origin = lubridate::origin, tz = "America/New_York")
+
+first_day <- ymd_hms("2016-08-08 00:00:00", tz = "America/New_York")
+
+days_between <- as.period(last_post - first_day)@day
+```
+
+
+There are **`r nrow(users)`** users in the Wharton 2018 GroupMe, covering the approximately 850 members of the Wharton 2018 MBA class. Though the group was created in January 2016, we trimmed the dataset to start on August 8, 2016 (first day of pre-term) to provide an accurate window in which to observe the actions of the users. In other words, all users have the same observation period. We removed users from the dataset that have left the group and discuss the possibility of late joiners in the [Limitations] section. The last post in our dataset is **`r last_post`**, thus covering **`r days_between`** days or **`r floor(days_between/7)`** weeks. There have been **`r nrow(msgs)`** posts by **`r msgs %>% summarise(n_distinct(user_id)) %>% unlist()`** distinct users. Below is a time series of the posts:
 
 ```{r}
 msgs %>%
@@ -119,7 +158,12 @@ data_frame(day = as_date(seq(from = min_day, to = max_day, by = "day"))) %>%
   labs(x = NULL, y = "Posts", title = "7-Day Rolling Average of Posts") +
   scale_x_date(date_breaks = "month", date_labels = "%b %y") +
   scale_y_continuous(limits = c(0, NA)) +
-  theme_jrf(users_v = "rstudio")
+  theme_jrf(users_v = "rstudio") +
+  geom_label(data = data_frame(x = ymd(20160815), y = 50, label = "White Party\nTicket Market"), 
+             aes(x = x, y = y, label = label), family =  "DecimaMonoPro", size = 2,
+             colour = pal538[['red']]) +
+  geom_segment(aes(x = ymd(20160830), xend = ymd(20160910), y = 50, yend = 50), colour = pal538[['red']],
+               arrow = arrow(length = unit(0.15,"cm"), ends = "last", type = "closed"))
 ```
 
 ## Count Datasets
@@ -135,7 +179,7 @@ The three actions that we will investigate (posts, mentions, and likes) each ari
 |Likes|The number of posts a user has liked is a choice dataset, as there is a finite number of opportunities to like a post (i.e. the number of posts). However, given the high upper bound, we can reasonably view this dataset as a count process. As such, each user has some **like rate**, $\lambda$, during the observed time window that determines how many posts they like. An individual can be someone that likes every post or has never liked a post.|Users have different levels of engagement on the Wharton 2018 GroupMe. Thus, it follows there will be variation in like rates within the user population.|
 : Count datasets arising from the Wharton 2018 GroupMe
 
-We expect to observe difference in heterogeneity of each of the three events. For example, we would presume that there is more heterogeneity in **like rate** than in **post rate** as liking is less visible and risky (to one's reputation) than posting in a group of `r nrow(users)`.
+We might expect to observe differences in heterogeneity of each of the three events. For example, we would presume that there is more heterogeneity in **like rate** than in **post rate** as liking is less visible and risky (to one's reputation) than posting in a group of `r nrow(users)`.
 
 ### Gender
 
@@ -252,7 +296,7 @@ posts_per_user <-
     summarise(posts = sum(!is.na(msg_id)))
 ```
 
-In the plot below we show the distribution of posts per user. The distribution is positively skewed with a long right tail. There are a few users that have posted more than 50 times, but the majority are less active. The median number of post per user is **`r median(posts_per_user$posts)`** posts though the mean posts per user is **`r mean(posts_per_user$posts)`** posts.
+In the plot below we show the distribution of posts per user. The distribution is positively skewed with a long right tail. There are a few users that have posted more than 50 times, but the majority are less active. The median number of post per user is **`r median(posts_per_user$posts)`** posts though the mean posts per user is **`r mean(posts_per_user$posts)`** posts (sd = **`r sd(posts_per_user$posts)`**).
 
 ```{r post per user histogram}
 posts_per_user %>%
@@ -262,7 +306,9 @@ posts_per_user %>%
   theme_jrf(users_v = "rstudio")
 ```
 
-```{r posts-data-frame, cap.fig = "test me"}
+The data is of the form:
+
+```{r posts-data-frame}
 posts <-
   posts_per_user %>%
   group_by(posts) %>%
@@ -322,7 +368,7 @@ posts_expected <-
   mutate(chisq = (Actual - expected)^2 / expected)
 ```
 
-Below is a table that shows the estimated number of users for posts counts less than five by the three parameter estimation techniques. A plot showing all post counts follows. We see that the methods are not that different, but method of moments certainly performs the worst. 
+Below is a table that shows the estimated number of users for post counts less than five by the three parameter estimation techniques. A plot showing all post counts follows. We see that the methods are not that different, but method of moments certainly performs the worst. 
 
 ```{r table of expected users for post counts}
 posts_expected %>%
@@ -379,15 +425,19 @@ nbd_post_gof_test <-
       ) %>%
       mutate(chisq = (Actual - expected)^2 / expected) %>%
       group_by(model) %>%
-      summarise(chisq = sum(chisq)) %>%
+      summarise(
+        chisq = sum(chisq)
+        , percent_expected = sum(expected > 5) / n()
+      ) %>%
       mutate(p.value = pchisq(chisq,
       df = n_posts - 2 - 1, lower.tail = FALSE))
 ```
 
-In order to perform the $\chi$^2 goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_posts`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_posts` - 2 - 1 = `r n_posts - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have no evidence that the data came from the NBD model. Nevertheless, the plot above shows a relatively good fit, at least for the estimates from MLE and means and zeros.
+In order to perform the $\chi^2$ goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_posts`+ bucket so that `r round(100 * min(nbd_post_gof_test$percent_expected), 1)`% expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each parameter estimation method using `r n_posts` - 2 - 1 = `r n_posts - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have no evidence that the data came from the NBD model. Nevertheless, the plot above shows a relatively good fit, at least for the estimates from MLE and means and zeros.
 
 ```{r posts goodness of fit print}
 nbd_post_gof_test %>%  
+  select(-percent_expected) %>%
   pander(caption = "Goodness of Fit Test", round = 6)
 ```
 
@@ -406,14 +456,19 @@ mentions_per_user <-
     )
 ```
 
-Like posts we start by looking at the distribution of the number of times a user has been mentioned both in graphic form and the the table below. Like posts, mentions are postive skewed with a long right tail - one user has 40 mentions. The median number of mentions for a user is **`r median(mentions_per_user$mentions)`** mentions though the mean is **`r mean(mentions_per_user$mentions)`** mentions.
+Like posts we start by looking at the distribution of the number of times a user has been mentioned both in graphic form and the the table below. Like posts, mentions are postive skewed with a long right tail - one user has 40 mentions. The median number of mentions for a user is **`r median(mentions_per_user$mentions)`** mentions though the mean is **`r mean(mentions_per_user$mentions)`** mentions (sd = **`r sd(mentions_per_user$mentions)`**).
 
 ```{r histogram of mentions per users}
 mentions_per_user %>%
   ggplot(aes(x = mentions)) +
   geom_histogram(binwidth = 1, fill = pal538[['blue']]) +
   labs(x = "Mentions per User", y = "Number of Users", title = "Distribution of Mentions per User") +
-  theme_jrf(users_v = "rstudio")
+  theme_jrf(users_v = "rstudio") +
+  geom_label(data = data_frame(x = 30, y = 300, label = '"Miss/Mr\nPopular"'), 
+             aes(x = x, y = y, label = label), family =  "DecimaMonoPro", size = 4,
+             colour = pal538[['red']]) +
+  geom_segment(aes(x = 30, xend = 40, y = 265, yend = 10), colour = pal538[['red']],
+               arrow = arrow(length = unit(0.2,"cm"), ends = "last", type = "closed"))
 ```
 
 ```{r mentions data frame}
@@ -523,7 +578,7 @@ n_mentions <- floor((n_mentions-1)/5) * 5
 mentions_gof_test <- 
   mentions_expected %>%
       filter(model != "MLE (Zero-Inflated)") %>%
-      mutate(posts = if_else(mentions >= n_mentions, paste0(n_mentions,"+"), as.character(mentions))) %>%
+      mutate(mentions = if_else(mentions >= n_mentions, paste0(n_mentions,"+"), as.character(mentions))) %>%
       group_by(model, mentions) %>%
       summarise(
         Actual = sum(Actual)
@@ -531,16 +586,20 @@ mentions_gof_test <-
       ) %>%
       mutate(chisq = (Actual - expected)^2 / expected) %>%
       group_by(model) %>%
-      summarise(chisq = sum(chisq)) %>%
+      summarise(
+        chisq = sum(chisq)
+        , percent_expected = sum(expected > 5) / n()
+      ) %>%
       mutate(p.value = pchisq(chisq,
       df = n_mentions - 2 - 1, lower.tail = FALSE))
 ```
 
 
-Like before, to perform the $\chi^2$ goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_mentions`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_mentions` - 2 - 1 = `r n_mentions - 2 - 1` degrees of freedom. Though the plot above looked quite good, based on the $p$-values shown below, we have no evidence that the data came from the NBD model.
+Like before, to perform the $\chi^2$ goodness of fit test for the NBD model, we need rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_mentions`+ bucket so that `r round(100 * min(mentions_gof_test$percent_expected), 1)`% expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_mentions` - 2 - 1 = `r n_mentions - 2 - 1` degrees of freedom. Though the plot above looked quite good, based on the $p$-values shown below, we do not have strong evidence that the data came from the NBD model, ignoring the method of moments as a poor fit.
 
 ```{r print table of gof results for mentions}
 mentions_gof_test %>%  
+  select(-percent_expected) %>%
   pander(caption = "Goodness of fit test for mentions received", round = 6)
 ```
 
@@ -559,7 +618,7 @@ likes_per_user <-
     )
 ```
 
-We follow the same process for likes given as we did for posts and mentions. We note that the tail is a bit longer for likes as some users do lot of post-liking. The median number of likes given is **`r median(likes_per_user$likes)`** likes though the mean is **`r mean(likes_per_user$likes)`** likes.
+We rinse and repeast, following the same process for likes given as we did for posts and mentions. We note that the tail is a bit longer for likes as some users do lot of post-liking. The median number of likes given is **`r median(likes_per_user$likes)`** likes though the mean is **`r mean(likes_per_user$likes)`** likes (sd = **`r sd(likes_per_user$likes)`**).
 
 ```{r histogram of likes per user}
 likes_per_user %>%
@@ -596,7 +655,7 @@ likes_params <-
   select(variable, everything())
 ```
 
-A careful observer of the plot above may have noted the magnitude of the counts are quite large. This is problematic when calculating gamma functions. For example, $\Gamma(100) = 9.3e^{155}$. To handle this, we used log-gamma and log-factorial functions and restated the first term of the NBD equation as 
+A careful observer of the plot above may have noted the magnitude of the counts are quite large. This is problematic when calculating gamma functions. For example, $\Gamma(100) = 9.3e^{155}$. Now imagine $\Gamma(600)$. To handle this, we used log-gamma and log-factorial functions and restated the first term of the NBD equation as 
 
 \begin{equation}
 \ \frac{\Gamma(r + x)}{\Gamma(r) x!} = e^{lgamma(r + x) - (lgamma(r) + lfactorial(x))}
@@ -684,7 +743,7 @@ n_likes <- floor((n_likes-1)/5) * 5
 likes_gof_test <- 
   likes_expected %>%
       filter(model != "MLE (Zero-Inflated)") %>%
-      mutate(posts = if_else(likes >= n_likes, paste0(n_likes,"+"), as.character(likes))) %>%
+      mutate(likes = if_else(likes >= n_likes, paste0(n_likes,"+"), as.character(likes))) %>%
       group_by(model, likes) %>%
       summarise(
         Actual = sum(Actual)
@@ -692,29 +751,43 @@ likes_gof_test <-
       ) %>%
       mutate(chisq = (Actual - expected)^2 / expected) %>%
       group_by(model) %>%
-      summarise(chisq = sum(chisq)) %>%
+      summarise(
+        chisq = sum(chisq)
+        , percent_expected = sum(expected > 5) / n()
+      ) %>%
       mutate(p.value = pchisq(chisq, df = n_likes - 2 - 1, lower.tail = FALSE))
 ```
 
-Finally we perform the $\chi^2$ goodness of fit test and first rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_likes`+ bucket and calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_likes` - 2 - 1 = `r n_likes - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have no evidence that the data came from the NBD model. Moreover, we note how large the $\chi^2$ test statistics are for the likes given in comparison to posts or mentions, indicating how poor a fit the NBD model is for the likes given data.
+Finally we perform the $\chi^2$ goodness of fit test and first rollup the tail so that 80% of the expected counts have more than 5 counts. We create a `r n_likes`+ bucket so that `r round(100 * min(likes_gof_test$percent_expected), 1)`% expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each paremeter estimation method using `r n_likes` - 2 - 1 = `r n_likes - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have evidence that the data came from the NBD model for the MLE and means and zeros estimation methods. The model created by the method of moments fits poorly. 
 
 ```{r print gof test results for likes}
-likes_gof_test %>%  
+likes_gof_test %>%
+  select(-percent_expected) %>%
   pander(caption = "Goodness of fit test for likes given", round = 6)
 ```
 
-## Compare Parameter Estimates
+# Results
+
+## Activity Rates
+
+Let's get to the answers to our questions. Below is a summary of the parameter estimates (using MLE) for the three behaviors in question. We see that there is in fact a different in rates of each activity. On average, a user posts 5 times more than they get mentioned. Users also like posts 5 times more than they post. So, for the **`r days_between`** days thus far, you have likely liked 45 posts, posted 5 times, and been mentioned once. The magnitude of the variance (and standard deviance shown above), follow this hierarchy.
 
 ```{r}
 mle_models <- 
   bind_rows(post_params, mentions_params, likes_params) %>%
   filter(model == "MLE") %>%
   mutate(variable = factor(variable, levels = c("posts","mentions","likes"))) %>%
-  select(-pi, -model)
+  select(-pi, -model) %>%
+  mutate(
+    `E[X]` = r / alpha
+    , `sd[X]` = sqrt(r / alpha + r / alpha^2)
+  )
 
 mle_models %>%
-  pander(caption = "", round = 4)
+  pander(caption = "Summary of model parameters, mean, and standard deviation", round = 4)
 ```
+
+We can also look at the distributions of the three rates, identified as $\lambda$ in our NBD model. In the plot below we see that there is the most heterogeneity in like rate, the least heterogeneity in mention rate, and the post rate is in the middle. As $r < 1$ for all distributions, each have an interior mean (do not go to $\infty$ near zero). At this point we have answered question 1: there are differences in post, mention, and like rates.
 
 ```{r}
 mle_models %>%
@@ -737,7 +810,7 @@ mle_models %>%
              aes(x, y, label = label), parse = TRUE, show.legend = FALSE,  family = "DecimaMonoPro")
 ```
 
-## Lorenz Curve
+## Concentration
 
 ```{r}
 Lp <-  
@@ -747,8 +820,13 @@ Lp <-
  
 rule_8020 <-
   Lp %>%
-  filter(p == 0.8)
+  filter(p == 0.8) %>%
+  mutate(Lp_minus_one = 1 - L_p)
+```
 
+Now we can answer question 2: is there variation in the concentration of each of the GroupMe activities. Using the Lorenze curve and the 80/20 rule highlighted below we see there are some difference, but the differences are not stark. We see that being mentioned is concentrated in the fewest number of users (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'mentions') %>% select(L_p) %>% unlist() %>% unname() %>% scales::percent()` = `r rule_8020 %>% filter(variable == 'mentions') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% scales::percent()` of the mentions). This follows intuitively from the histogram in the NBD model section. In contrast, likes are the least concentrated (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'likes') %>% select(L_p) %>% unlist() %>% unname() %>% scales::percent()` = `r rule_8020 %>% filter(variable == 'likes') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% scales::percent()` of the likes). So, we found that mentions are more concentrated than likes, with post in between. However, the differences are not tremendous.
+
+```{r}
 Lp %>% 
   ggplot(aes(x = p, y = L_p, colour = variable)) +
   geom_line() +
@@ -767,7 +845,7 @@ Lp %>%
   scale_colour_manual(values = c(pal538[['blue']], pal538[['red']], pal538[['green']]))
 ```
 
-## Gender
+## Gender Differences
 
 ```{r}
 activity_gender <- 
@@ -833,56 +911,48 @@ gender_params2 <-
       , gender = factor(gender, levels = c("Female","Male", "Combined"))
     ) %>%
     select(activity, gender, model, everything()) %>%
-    arrange(activity, gender, model)
-```
-
-```{r}
-gender_params2 %>%
-  pander(caption = "", missing = "", round = 4)
-```
-
-```{r}
-gender_params2 %>%
-  filter(model != "MLE (Zero-Inflated)")
+    arrange(model, activity, gender)
 ```
 
 ```{r}
 gender_expected <- 
-activity_gender %>% 
-  gather(activity, count, -user_id, -gender) %>%
-  group_by(activity, count) %>%
-  count() %>%
-  group_by(activity) %>%
-  complete(count= full_seq(count, 1)) %>%
-  ungroup() %>%
-  select(-n) %>%
-  crossing(gender = factor(c("Female","Male"), levels = c("Female","Male"))) %>%
-  left_join(
-    activity_gender %>% 
-      gather(activity, count, -user_id, -gender) %>%
-      group_by(gender, activity, count) %>%
-      count()
-    , by = c('activity', 'count','gender')
-  ) %>%
-  replace_na(list(n = 0)) %>%
-  left_join(
-    gender_params2 %>%
-      filter(gender != "Combined" & model != "MLE (Zero-Inflated)")
-    , by = c('activity','gender')
-  ) %>%
-  replace_na(list(pi = 0)) %>%
-  rowwise() %>%
-  mutate(p_x = map_dbl(count, .f = fn_zinbd, r, alpha, pi)) %>%
-  group_by(activity, gender) %>%
-  mutate(expected = p_x * sum(n)) %>%
-  ungroup() %>%
-  mutate(
-    gender = factor(gender, levels = c("Female","Male"))
-    , activity = factor(activity, levels = c("posts", "mentions","likes"))
-  )
+  activity_gender %>% 
+    gather(activity, count, -user_id, -gender) %>%
+    group_by(activity, count) %>%
+    count() %>%
+    group_by(activity) %>%
+    complete(count= full_seq(count, 1)) %>%
+    ungroup() %>%
+    select(-n) %>%
+    crossing(gender = factor(c("Female","Male"), levels = c("Female","Male"))) %>%
+    left_join(
+      activity_gender %>% 
+        gather(activity, count, -user_id, -gender) %>%
+        group_by(gender, activity, count) %>%
+        count()
+      , by = c('activity', 'count','gender')
+    ) %>%
+    replace_na(list(n = 0)) %>%
+    left_join(
+      gender_params2 %>%
+        filter(gender != "Combined" & model != "MLE (Zero-Inflated)")
+      , by = c('activity','gender')
+    ) %>%
+    replace_na(list(pi = 0)) %>%
+    rowwise() %>%
+    mutate(p_x = map_dbl(count, .f = fn_zinbd, r, alpha, pi)) %>%
+    group_by(activity, gender) %>%
+    mutate(expected = p_x * sum(n)) %>%
+    ungroup() %>%
+    mutate(
+      gender = factor(gender, levels = c("Female","Male"))
+      , activity = factor(activity, levels = c("posts", "mentions","likes"))
+    )
 ```
 
-```{r fig.height=6}
+We move into treacherous waters: asking if there are differences between the genders. To answer question 3 we start with side-by-side histograms of each of the three activies, scaled for differences in the number of females (`r users %>% filter(sex == "Female") %>% nrow()`) and males (`r users %>% filter(sex == "Male") %>% nrow()`). 
+
+```{r gender-histogram, fig.height=6}
 gender_expected %>%
   group_by(activity, gender) %>%
   mutate(total = sum(n)) %>%
@@ -901,18 +971,45 @@ gender_expected %>%
     scale_fill_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
 ```
 
+Next, we fit an NBD model for each activity, for each gender and combined, using MLE without and with a spike at zero. Based on the (large) table below we immediately see that none of the zero-inflated models are appropriate. 
+
+```{r}
+gender_params2 %>%
+  pander(caption = "Estimated model parameters and log-likelihood for each model by gender", missing = "", round = 4)
+```
+
+So, we move to plotting the expected counts of each activity for females and males based on the NBD model. We see that the expected counts are remarkabely similar for each activity, though the $r$ and $\alpha$ parameters are slightly different.
+
 ```{r}
 gender_expected %>%
   ggplot() +
-    geom_line(aes(x = count, y = expected, colour = gender), stat = 'identity') +
-    labs(x = NULL, y = "Users", title = "NBD Models by Activity by Gender", colour = NULL) +
-    facet_wrap(~ activity, scales = 'free') + 
-    theme_jrf(users_v = "rstudio") +
-    theme(legend.position = 'top') +
-    scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']])) +
-    scale_fill_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
+  geom_line(aes(x = count, y = expected, colour = gender), stat = 'identity') +
+  labs(x = NULL, y = "Users", title = "Expected Counts from NBD Models by Activity by Gender", colour = NULL) +
+  facet_wrap(~ activity, scales = 'free') + 
+  theme_jrf(users_v = "rstudio") +
+  theme(legend.position = 'top') +
+  scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']])) +
+  scale_fill_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']])) +
+  geom_label(data = . %>% 
+                        group_by(activity, gender, r, alpha) %>% 
+                        summarise(max_c = max(count), max_e = max(expected)) %>% 
+                        group_by(activity) %>% 
+                        mutate(max_c = max(max_c), max_e = max(max_e)) %>%
+                        mutate(
+                          x = max_c / 2
+                          , y = max_e  / 1.8 
+                          , line = paste0('{E[',gender,']~group("[",X,"]") == frac(r, alpha)} == ', 
+                                          formatC(r / alpha, format = 'f', digits =2))
+                        ) %>%
+                        group_by(x, y, activity) %>%
+                        summarise(line = paste(line, collapse = ",")) %>%
+                        mutate(line = paste0("atop(", line, ")"))
+              ,
+             aes(x = x, y = y, label = line), parse = TRUE,
+             family = "DecimaMonoPro", size = 3)
 ```
 
+Using the Lorenz curves below we see that the activites are a bit more concentrated for males than for females. We can see this in the histogram at the [beginning of this section][Gender Differences]. For each activity, there are more males than females that are not involved. However, this difference is minimal.
 
 ```{r}
 Lp_gender <-  
@@ -944,6 +1041,8 @@ Lp_gender %>%
   scale_colour_manual(values = c(Male = pal538[['blue']], Female = pal538[['red']]))
 ```
 
+Lastly, we use the likelihood ratio test (with degress of freedom $4 - 2 = 2$) to identify if the individual model are better at explaining the behavior than a combined movel. We see from the $p$-values below, two separate model are not different from the combined model. So, we have answered question 3: females and males uses the platform in a similar fashion.
+
 ```{r}
 gender_params2 %>%
   filter(model != "MLE (Zero-Inflated)") %>%
@@ -951,12 +1050,14 @@ gender_params2 %>%
   spread(gender, ll) %>%
   mutate(chisq = 2* ((Female + Male) - Combined)) %>%
   mutate(p.value = pchisq(chisq, df = 4 - 2, lower.tail = FALSE)) %>%
-  pander(caption = "", round = 4)
+  pander(caption = "Likelihood ratio test to determine in separate female and male models are appropriate", round = 4)
 ```
 
-# Conclusion
+# Limitations
 
-## Limitations
+1. *Users that joined after August 8, 2016 or left and rejoined.* While we removed users that left during the observation period, this analysis assumes that all **`r nrow(users)`** users were in the Wharton 2018 GroupMe for the entire duration of the observation period. While we know a few cases where this is not true, this occurance is minimal. Unfortunately, GroupMe does not have a join data in the API for users to a group. There are system created posts when users join or when existing users add new users. Unfornately, the way that GroupMe has stored this data has changed over time. The true source of truth if GroupMe generated human-readable text which would need to be extensively parsed and was not done so here.
+2. *Interdepedence of activites.* Not discussed in this paper is interdependence of posts, mentions, and likes. An extension of this analysis would explore the interaction between the three.
+
 
 
 
