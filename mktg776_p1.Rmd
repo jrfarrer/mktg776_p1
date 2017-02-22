@@ -37,14 +37,14 @@ pacman::p_load(tidyverse, forcats, pander, stringr, lubridate, jrfTools, extrafo
 ```
 
 ```{r report-additional-setup, include = FALSE}
+options(scipen=999)
 panderOptions('round', 2)
 panderOptions('keep.trailing.zeros', TRUE)
 
 data_dir <- 'data/'
-code_dir <- 'code/'
 viz_dir <- 'viz/'
 
-map(c(data_dir, code_dir, viz_dir), dir.create, showWarnings = FALSE)
+map(c(data_dir, viz_dir), dir.create, showWarnings = FALSE)
 ```
 
 ```{r report-wordcount}
@@ -59,14 +59,14 @@ fn_cound_words <- function(file) {
   dtm %>% as.matrix() %>% sum()
 }
 
-n_words <- fn_cound_words(paste0("groupme.pdf"))
+n_words <- fn_cound_words(paste0("mktg776_p1.pdf"))
 ```
 
 **Word Count**: `r n_words`
 
 # Executive Summary
 
-In this paper we use NBD count models to examine the behavior of Wharton MBA students on the messaging platform GroupMe. With data from the Wharton 2018 GroupMe, in which nearly all class members are users, we fit NBD models to the activities of posting a message, being mentioned in a message, and liking a message. In the observation period we find that *users post approximately 5 times more than they are mentioned and like posts 5 times more than they post*. Moreover, we find that being mentioned is concentrated in the fewest number of student while liking messages is the least concentrated. Finally, we built NBD models for each gender but find that *behaviors for females and males are the same* in the Wharton 2018 GroupMe.
+In this paper we use NBD count models to examine the behavior of Wharton MBA students on the messaging platform GroupMe. With data from the Wharton 2018 GroupMe, in which nearly all class members are users, we fit NBD models to the activities of posting a message, being mentioned in a message, and liking a message. In the observation period we find that **users post approximately 5 times more than they are mentioned and like posts 5 times more than they post**. Moreover, we find that being mentioned is the most concentrated (small number of students account for most mentions) while liking messages is the least concentrated. Finally, we built NBD models for each gender but find that **behaviors for females and males are the same** in the Wharton 2018 GroupMe.
 
 # Background
 
@@ -595,7 +595,7 @@ mentions_gof_test <-
 ```
 
 
-Like before, to perform the $\chi^2$ goodness-of-fit test for the NBD model, we need roll-up the right tail so that 80% of the expected counts have more than 5 counts. We create a `r n_mentions`+ bucket so that `r round(100 * min(mentions_gof_test$percent_expected), 1)`% of the expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each parameter estimation method using `r n_mentions` - 2 - 1 = `r n_mentions - 2 - 1` degrees of freedom. Though the plot above looked quite good, based on the $p$-values shown below, we do not have strong evidence that the data came from the NBD model, ignoring the method of moments as a poor fit.
+Like before, to perform the $\chi^2$ goodness-of-fit test for the NBD model, we need roll-up the right tail so that 80% of the expected counts have more than 5 counts. We create a `r n_mentions`+ bucket so that `r round(100 * min(mentions_gof_test$percent_expected), 1)`% of the expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each parameter estimation method using `r n_mentions` - 2 - 1 = `r n_mentions - 2 - 1` degrees of freedom. Though the plot above looked quite good, based on the $p$-values shown below, we do not have evidence that the data came from the NBD model, ignoring the method of moments as a poor fit.
 
 ```{r print table of gof results for mentions}
 mentions_gof_test %>%  
@@ -758,7 +758,7 @@ likes_gof_test <-
       mutate(p.value = pchisq(chisq, df = n_likes - 2 - 1, lower.tail = FALSE))
 ```
 
-Finally we perform the $\chi^2$ goodness-of-fit test and first roll-up the right tail so that 80% of the expected counts have more than 5 counts. We create a `r n_likes`+ bucket so that `r round(100 * min(likes_gof_test$percent_expected), 1)`% of the expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each parameter estimation method using `r n_likes` - 2 - 1 = `r n_likes - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have weak evidence that the data came from the NBD model for the MLE and means and zeros estimation methods. The model created by the method of moments fits poorly. 
+Finally we perform the $\chi^2$ goodness-of-fit test and first roll-up the right tail so that 80% of the expected counts have more than 5 counts. We create a `r n_likes`+ bucket so that `r round(100 * min(likes_gof_test$percent_expected), 1)`% of the expected counts are greater than 5. We calculate the $\chi^2$ test statistic and $p$-value for each parameter estimation method using `r n_likes` - 2 - 1 = `r n_likes - 2 - 1` degrees of freedom. Based on the $p$-values shown below, we have evidence that the data came from the NBD model for the MLE and means and zeros estimation methods. The model created by the method of moments fits poorly. 
 
 ```{r print gof test results for likes}
 likes_gof_test %>%
@@ -824,7 +824,7 @@ rule_8020 <-
   mutate(Lp_minus_one = 1 - L_p)
 ```
 
-Now we can answer question 2: is there variation in the concentration of each of the GroupMe activities. Using the Lorenz curve and the 80/20 rule highlighted below we see there are some differences, but the differences are not stark. We see that being mentioned is concentrated in the fewest number of users (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'mentions') %>% select(L_p) %>% unlist() %>% unname() %>% round(., 2)*100`% = `r rule_8020 %>% filter(variable == 'mentions') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% round(., 2)*100`% of the mentions). This follows intuitively from the histogram in the NBD model section. In contrast, likes are the least concentrated (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'likes') %>% select(L_p) %>% unlist() %>% unname() %>% round(., 2)*100`% = `r rule_8020 %>% filter(variable == 'likes') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% round(., 2)*100`% of the likes). So, we find that mentions are more concentrated than likes, with posts in between. However, the differences are not tremendous.
+Now we can answer question 2: is there variation in the concentration of each of the GroupMe activities. Using the Lorenz curve and the 80/20 rule highlighted below we see there are some differences, but the differences are not stark. We see that being mentioned is concentrated in the fewest number of users (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'mentions') %>% select(L_p) %>% unlist() %>% unname() %>% round(., 2)*100`% = `r rule_8020 %>% filter(variable == 'mentions') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% round(., 2)*100`% of the mentions). This follows intuitively from the histogram in the NBD model section. In contrast, likes are the least concentrated (20% of users account for 1 - `r rule_8020 %>% filter(variable == 'likes') %>% select(L_p) %>% unlist() %>% unname() %>% round(., 2)*100`% = `r rule_8020 %>% filter(variable == 'likes') %>% select(Lp_minus_one) %>% unlist() %>% unname() %>% round(., 2)*100`% of the likes). So, we find that mentions are more concentrated than likes, with posts in between. However, the differences are not substantial.
 
 ```{r}
 Lp %>% 

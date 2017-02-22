@@ -33,10 +33,9 @@ pacman::p_load(tidyverse, forcats, pander, stringr, jsonlite, lubridate, RcppRol
 panderOptions('round', 2)
 panderOptions('keep.trailing.zeros', TRUE)
 data_dir <- 'data/'
-code_dir <- 'code/'
 viz_dir <- 'viz/'
 
-map(c(data_dir, code_dir, viz_dir), dir.create, showWarnings = FALSE)
+map(c(data_dir, viz_dir), dir.create, showWarnings = FALSE)
 suppressMessages(gs_auth(token = "/home/rstudio/Dropbox/googlesheets_token.rds", verbose = FALSE))
 ```
 
