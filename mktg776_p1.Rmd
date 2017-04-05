@@ -102,7 +102,7 @@ You have just decided to get your MBA at Wharton. After paying your deposit and 
 knitr::include_graphics(paste0(viz_dir,'iphone_groupme.png'))
 ```
 
-The data in this analysis is from the "Wharton - 2018" GroupMe group (often just referred to as the Wharton 2018 GroupMe). GroupMe has an [API](dev.groupme.com) that allows developers to access groups and messages. After creating an access token, we built a pipeline to acquire and process the users and messages from GroupMe for this group (see [this data processing documentation](https://github.com/available_after_whooppee/mktg776_p1) for details). After parsing the JSON's and cleaning the data, we created a dataset of simple tables illustrated in the diagram below:
+The data in this analysis is from the "Wharton - 2018" GroupMe group (often just referred to as the Wharton 2018 GroupMe). GroupMe has an [API](dev.groupme.com) that allows developers to access groups and messages. After creating an access token, we built a pipeline to acquire and process the users and messages from GroupMe for this group (see [this data processing documentation](https://github.com/jrfarrer/mktg776_p1/) for details). After parsing the JSON's and cleaning the data, we created a dataset of simple tables illustrated in the diagram below:
 
 ```{r fig.cap = 'GroupMe data organization', out.width = '60%'}
 knitr::include_graphics(paste0(viz_dir,'groupme_erd.png'))
